@@ -29,6 +29,7 @@ def log(*args):
     if log_enabled:
         print(*args)
 
+
 #----------------------------------------------------------------------------------------
 # target language classes output code in the target language
 class TargetLanguage:
@@ -48,6 +49,7 @@ class Feature:
         self.mdPath = mdPath    # the path to the .fnf.md file
         self.text = ""          # the text of the feature
         self.sourceMap = []     # maps output line numbers to source line numbers
+        self.functions = []     # list of functions declared by the feature
 
     def process(self):
         self.readSource()
@@ -91,12 +93,12 @@ class Feature:
 
     # process code to extract a list of variables, functions and structs
     def processCode(self):
-        # find the sequence "feature <name> extends <parent>;"
-        (name, parent) = self.findFeatureDeclaration()
+        self.findFeatureDeclaration()
+        self.findFunctionDeclarations()
+        self.findStructDeclarations()
 
     # find the feature declaration
     def findFeatureDeclaration(self):
-        log_enable()
         pattern = r"feature (\w+)(?: extends (\w+))?"
         matches = re.findall(pattern, self.code)
         results = [(name, parent if parent else None) for name, parent in matches]
@@ -104,35 +106,121 @@ class Feature:
             raise Exception("Feature declaration not found")
         if len(results)>1:
             raise Exception("Multiple feature declarations found")
-        name = results[0][0]
-        parent = results[0][1]
-        log("feature name:", name)
-        log("parent name:", parent)
-        log_disable()
-        return (name, parent)
+        self.name = results[0][0]
+        self.parent = results[0][1]
+        log("feature name:", self.name)
+        log("parent name:", self.parent)
+    
+    # find function declarations
+    def findFunctionDeclarations(self):
+        log("findFunctionDeclarations")
+        log("code:", self.code)
+        self.functions = []
+        modifiers = ["def", "replace", "on", "before", "after"]
+        mod_pattern = r'\b(' + '|'.join(modifiers) + r')\b'
+        pattern = rf"{mod_pattern}\s+(\w+)\s*\(([^)]*)\)(?:\s*:\s*(\w+))?\s*{{"
+        regex = re.compile(pattern, re.DOTALL)
+        for match in regex.finditer(self.code):
+            sourcePos = match.end()
+            body = self.extractFunctionBody(sourcePos)
+            if body is not None:
+                modifier = match.group(1)
+                name = match.group(2)
+                params = "(" + match.group(3) + ")"
+                returnType = match.group(4)
+                self.functions.append(Function(modifier, name, params, returnType, body))
+            else:
+                log("body: None")
+        for f in self.functions:
+            log(f.toString())
 
+    # find struct declarations
+    def findStructDeclarations(self):
+        log("findStructDeclarations")
+        self.structs = []
+        pattern = r"(struct|extend) (\w+)\s*{"
+        regex = re.compile(pattern, re.DOTALL)
+        for match in regex.finditer(self.code):
+            sourcePos = match.end()
+            body = self.extractFunctionBody(sourcePos)
+            if body is not None:
+                modifier = match.group(1)
+                name = match.group(2)
+                self.structs.append(Struct(modifier, name, body))
+            else:
+                log("body: None")
+        for s in self.structs:
+            log(s.toString())
+            s.members = self.findVariableDeclarations(s.body)
+            
 
+    # find variable declarations
+    def findVariableDeclarations(self, code):
+        log("findVariableDeclarations")
+        log("code:", code)
+        variables = []
+        # pattern: <name> : <type> = <defaultValue>; ": <type>" and "= <defaultValue>" are optional
+        pattern = rf"(\w+)(?:\s*:\s*(\w+))?(?:\s*=\s*(.*?))?;"
+        regex = re.compile(pattern, re.DOTALL)
+        for match in regex.finditer(code):
+            name = match.group(1)
+            type = match.group(2)
+            defaultValue = match.group(3)
+            variables.append(Variable(name, type, defaultValue))
+        for v in variables:
+            log(v.toString())
+        return variables
 
-        
+    # given a position in the source, extract a function body "{" ... "}"
+    def extractFunctionBody(self, sourcePos):
+        # Start with a count of 1 because we start after the first opening brace
+        nBraces = 1
+        i = sourcePos
+        while i < len(self.code) and nBraces > 0:
+            if self.code[i] == '{':
+                nBraces += 1
+            elif self.code[i] == '}':
+                nBraces -= 1
+            i += 1
+        return self.code[sourcePos-1:i]
+    
+    # print an error message given an index in the code
+    def error(self, index, message):
+        line = self.sourceMap[index]
+        print(f"Error in {self.mdPath} at line {line}: {message}")
 
 # represents a function declared by a feature
 class Function:
-    def __init__(self, name, params, returnType):
+    def __init__(self, modifier, name, params, returnType, body):
+        self.modifier = modifier
         self.name = name
         self.params = params
-        self.returnType = returnType
+        self.returnType = returnType if returnType else "void"
+        self.body = body
+
+    def toString(self):
+        return f"{self.modifier} {self.name}{self.params} : {self.returnType} {self.body}"
 
 # represents a structure declared by a feature
 class Struct:
-    def __init__(self, name, members):
+    def __init__(self, modifier, name, body):
+        self.modifier = modifier
         self.name = name
-        self.members = members
+        self.body = body
+        self.members = []
+
+    def toString(self):
+        return f"{self.modifier} {self.name} {self.body}"
 
 # represents a variable declared by a feature
 class Variable:
-    def __init__(self, name, type):
+    def __init__(self, name, type=None, defaultValue=None):
         self.name = name
         self.type = type
+        self.defaultValue = defaultValue
+
+    def toString(self):
+        return f"{self.name} : {self.type} = {self.defaultValue}"
 
 #----------------------------------------------------------------------------------------
 # FeatureManager builds the feature graph from the input code, and outputs the target code
