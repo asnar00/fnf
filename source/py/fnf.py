@@ -3,6 +3,30 @@
 # the eminently reasonable .fnf.md => anything convertor
 
 import os
+from typing import List
+
+#----------------------------------------------------------------------------------------
+# logging: easy to turn off and on
+
+# global boolean log_enabled, initially False
+global log_enabled
+log_enabled = False
+
+# log_enable() sets log_enabled to True
+def log_enable():
+    global log_enabled
+    log_enabled = True
+
+# log_disable() sets log_enabled to False
+def log_disable():
+    global log_enabled
+    log_enabled = False
+
+# log() takes arbitrary arguments and passes them to print
+def log(*args):
+    global log_enabled
+    if log_enabled:
+        print(*args)
 
 #----------------------------------------------------------------------------------------
 # target language classes output code in the target language
@@ -16,9 +40,55 @@ class TargetLanguage:
 
 # represents a feature, containing vars, structs and functions
 class Feature:
-    def __init__(self, name, mdPath):
-        self.name = name
-        self.mdPath = mdPath
+    def __init__(self, mdPath):
+        # extract the feature name from the path, without extensions
+        self.name = os.path.basename(mdPath).split(".")[0]
+        log("feature name:", self.name)
+        self.mdPath = mdPath    # the path to the .fnf.md file
+        self.text = ""          # the text of the feature
+        self.sourceMap = []     # maps output line numbers to source line numbers
+
+    def process(self):
+        self.readSource()
+        self.extractCode()
+
+    # read source file into self.text
+    def readSource(self):
+        with open(self.mdPath, "r") as file:
+            self.text = file.read()
+        log("source:", self.text)
+
+    # extract code from text, get source-map
+    def extractCode(self):
+        log_enable()
+        log("extractCode", self.mdPath)
+        self.code = ""
+        self.sourceMap = []
+        lines = self.text.split("\n")
+        inCodeBlock = False
+        for i, line in enumerate(lines):
+            if not inCodeBlock:
+                if line.startswith("    "):
+                    codeLine = line[4:].rstrip()
+                    self.code += codeLine + "\n"
+                    self.sourceMap.append(i+1)
+                else:
+                    if line.startswith("```"):
+                        inCodeBlock = True
+            else:
+                if line.startswith("```"):
+                    inCodeBlock = False
+                else:
+                    codeLine = line.rstrip()
+                    self.code += codeLine + "\n"
+                    self.sourceMap.append(i+1)
+        # strip any empty or blank lines from the end of (code)
+        self.code = self.code.rstrip()
+        codeSplit = self.code.split("\n")
+        for i, line in enumerate(codeSplit):
+            log(i+1,":", line, "=>", self.sourceMap[i])
+        log_disable()
+        
 
 # represents a function declared by a feature
 class Function:
@@ -43,13 +113,38 @@ class Variable:
 # FeatureManager builds the feature graph from the input code, and outputs the target code
 
 class FeatureManager:
+    # constructor: finds where to look for features
     def __init__(self):
+        log("FeatureManager.init")
         self.cwd = os.getcwd() + "/source/fnf"
-        print("cwd: " + self.cwd)
-        self.scan()
+        log("cwd: " + self.cwd)
+        self.features = {}
+        
+    # build or maintain the feature graph, minimising work
+    def buildFeatureGraph(self):
+        log("buildFeatureGraph")
+        filesFound = self.scanFolder()
+        for file in filesFound:
+            if file in self.features:
+                self.updateExistingFeature(file)
+            else:
+                self.createNewFeature(file)
 
-    def scan(self):
-        print("scan")
+    # create a new feature from the given file
+    def createNewFeature(self, file):
+        log("createNewFeature: " + file)
+        feature = Feature(file)
+        self.features[file] = feature
+        feature.process()
+
+    # update an existing feature from the given file
+    def updateExistingFeature(self, file):
+        feature = self.features[file]
+        feature.process()
+
+    # find all files in the source folder, in order of creation-date
+    def scanFolder(self) -> List[str]:
+        log("scanFolder")
         # scan the directory for .fnf.md files
         filesFound = []
         for root, dirs, files in os.walk(self.cwd):
@@ -58,16 +153,15 @@ class FeatureManager:
                     filesFound.append(os.path.join(root, file))
         # sort files into ascending order of creation-date
         filesFound.sort(key=os.path.getctime)
-        # print a list of the files found
-        for file in filesFound:
-            print(file)
+        log("filesFound:", filesFound)
+        return filesFound
 
-        
 
 #----------------------------------------------------------------------------------------
 def main():
     print("ᕦ(ツ)ᕤ fnf.py")
     fm = FeatureManager()
+    fm.buildFeatureGraph()
 
 if __name__ == "__main__":
     main()

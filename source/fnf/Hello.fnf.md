@@ -13,9 +13,11 @@ And here's the function that does the work.
 
 We define our own function `print` that initially outputs to standard console, but eventually can also print stuff in the browser. That's the magic of features!
 
+```ts
     def print(... args: string[]) {
         console.log(...args);
     }
+```
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
