@@ -3,6 +3,7 @@
 # the eminently reasonable .fnf.md => anything convertor
 
 import os
+import re
 from typing import List
 
 #----------------------------------------------------------------------------------------
@@ -51,6 +52,7 @@ class Feature:
     def process(self):
         self.readSource()
         self.extractCode()
+        self.processCode()
 
     # read source file into self.text
     def readSource(self):
@@ -60,7 +62,6 @@ class Feature:
 
     # extract code from text, get source-map
     def extractCode(self):
-        log_enable()
         log("extractCode", self.mdPath)
         self.code = ""
         self.sourceMap = []
@@ -87,7 +88,31 @@ class Feature:
         codeSplit = self.code.split("\n")
         for i, line in enumerate(codeSplit):
             log(i+1,":", line, "=>", self.sourceMap[i])
+
+    # process code to extract a list of variables, functions and structs
+    def processCode(self):
+        # find the sequence "feature <name> extends <parent>;"
+        (name, parent) = self.findFeatureDeclaration()
+
+    # find the feature declaration
+    def findFeatureDeclaration(self):
+        log_enable()
+        pattern = r"feature (\w+)(?: extends (\w+))?"
+        matches = re.findall(pattern, self.code)
+        results = [(name, parent if parent else None) for name, parent in matches]
+        if len(results)==0:
+            raise Exception("Feature declaration not found")
+        if len(results)>1:
+            raise Exception("Multiple feature declarations found")
+        name = results[0][0]
+        parent = results[0][1]
+        log("feature name:", name)
+        log("parent name:", parent)
         log_disable()
+        return (name, parent)
+
+
+
         
 
 # represents a function declared by a feature
