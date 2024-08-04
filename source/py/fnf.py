@@ -125,7 +125,7 @@ class Feature:
 
     # save the feature as a json file
     def saveJson(self):
-        jsonPath = self.mdPath.replace(".fnf.ts.md", ".json").replace("/source/", "/build/")
+        jsonPath = self.mdPath.replace(".fnf.ts.md", ".json").replace("/source/fnf/", "/build/json/")
         with open(jsonPath, "w") as file:
             json.dump(self.toDict(), file, indent=4)
         log("saved:", jsonPath)
