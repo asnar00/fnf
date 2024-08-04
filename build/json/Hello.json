@@ -4,16 +4,29 @@
         {
             "modifier": "def",
             "name": "hello",
-            "params": "()",
+            "params": [],
             "returnType": "number",
             "body": "{\n    print(\"hey what's up\");\n    return 0;\n}"
         },
         {
             "modifier": "def",
             "name": "print",
-            "params": "(... args: string[])",
+            "params": [
+                {
+                    "modifier": null,
+                    "name": "msg",
+                    "type": "string",
+                    "defaultValue": null
+                },
+                {
+                    "modifier": null,
+                    "name": "indent",
+                    "type": "number",
+                    "defaultValue": "0"
+                }
+            ],
             "returnType": "void",
-            "body": "{\n    console.log(...args);\n}"
+            "body": "{\n    console.log(msg);\n}"
         }
     ],
     "structs": [
@@ -26,17 +39,29 @@
                     "modifier": null,
                     "name": "red",
                     "type": "number",
-                    "defaultValue": "0;\n    green: number = 0;\n    blue: number = 0"
+                    "defaultValue": "0;"
+                },
+                {
+                    "modifier": null,
+                    "name": "green",
+                    "type": "number",
+                    "defaultValue": "0;"
+                },
+                {
+                    "modifier": null,
+                    "name": "blue",
+                    "type": "number",
+                    "defaultValue": "0;"
                 }
             ]
         }
     ],
     "variables": [
         {
-            "modifier": "server",
+            "modifier": null,
             "name": "my_colour",
             "type": "Colour",
-            "defaultValue": "new Colour(1, 2, 3)"
+            "defaultValue": "new Colour(1, 2, 3);"
         }
     ]
 }

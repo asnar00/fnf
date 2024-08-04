@@ -83,13 +83,13 @@ class Typescript(TargetLanguage):
         return regex
     
     # return regex to match a variable declaration:
-    def variableDeclarationRegex(self):
-        modifiers = ["const", "var", "client", "server"]
-        # Regex pattern for optional single modifier:
-        mod_pattern = r'\b(?:' + '|'.join(modifiers) + r')\b'
-        # Pattern: <modifier>? <name> : <type> = <defaultValue>; ": <type>" and "= <defaultValue>" are optional:
-        pattern = rf"({mod_pattern})?\s+(\w+)\s*(?::\s*(\w+))?(?:\s*=\s*(.*))?;"
-        regex = re.compile(pattern, re.DOTALL)
+    def variableDeclarationRegex(self, modifiers =[]):
+        # Create a regex pattern that matches only the modifiers in the list, including optional whitespace after
+        modifier_pattern = r"(?:" + "|".join(modifiers) + r")\s*"
+        # Define the complete regex pattern, where the entire modifier pattern is optional
+        pattern = rf"^({modifier_pattern})?\s*(\w+)\s*(?::\s*(\w+))?(?:\s*=\s*(.*))?"
+        # Compile the regex pattern for better performance if it's used multiple times
+        regex = re.compile(pattern, re.MULTILINE)
         return regex
     
     # output a feature to a string
@@ -213,7 +213,7 @@ class Feature:
         self.findFeatureDeclaration()
         self.findFunctionDeclarations()
         self.findStructDeclarations()
-        self.findFeatureVarables()
+        self.findFeatureVariables()
 
     # find the feature declaration
     def findFeatureDeclaration(self):
@@ -242,13 +242,25 @@ class Feature:
             if body is not None:
                 modifier = match.group(1)
                 name = match.group(2)
-                params = "(" + match.group(3) + ")"
+                log_enable()
+                params = self.processParams(match.group(3))
+                log_disable()
                 returnType = match.group(4)
                 self.functions.append(Function(modifier, name, params, returnType, body))
             else:
                 log("body: None")
         for f in self.functions:
             log(f.toString())
+
+    # separate a list of parameters and return a list of vars
+    def processParams(self, params):
+        log("processParams")
+        ps = params.split(",")
+        vs = []
+        for p in ps:
+            vars = self.findVariableDeclarations(p.strip())
+            vs += vars
+        return vs
 
     # find struct declarations
     def findStructDeclarations(self):
@@ -269,11 +281,12 @@ class Feature:
             s.members = self.findVariableDeclarations(s.body)
 
     # find feature-scoped variable declarations
-    def findFeatureVarables(self):
-        log("findFeatureVarables")
+    def findFeatureVariables(self):
+        log_enable()
+        log("findFeatureVariables")
         # first find all code outside "{" ... "}" blocks
         outerCode = self.findOuterCode(self.code)
-        # then find all variable declarations in that code
+        log("outerCode:", outerCode)
         self.variables = self.findVariableDeclarations(outerCode)
 
     # find all code lines that aren't inside a { block }
@@ -292,14 +305,18 @@ class Feature:
     # find variable declarations in a given code block
     def findVariableDeclarations(self, code):
         log("findVariableDeclarations---------------------------------------")
+        log("input:", code)
         variables = []
-        regex = self.language.variableDeclarationRegex()
+        modifiers = ["const", "var", "static", "shared", "client", "server"]
+        regex = self.language.variableDeclarationRegex(modifiers)
         for match in regex.finditer(code):
             modifier = match.group(1)
             name = match.group(2)
             type = match.group(3)
             defaultValue = match.group(4)
-            variables.append(Variable(modifier, name, type, defaultValue))
+            if not (name != None and modifier == None and type == None and defaultValue == None):
+                log("match:", "modifier:", modifier, "name:", name, "type:", type, "defaultValue:", defaultValue)
+                variables.append(Variable(modifier, name, type, defaultValue))
         for v in variables:
             log(v.toString())
         return variables
@@ -322,7 +339,7 @@ class Function:
         return {
             "modifier": self.modifier,
             "name": self.name,
-            "params": self.params,
+            "params": [p.toDict() for p in self.params],
             "returnType": self.returnType,
             "body": self.body
         }

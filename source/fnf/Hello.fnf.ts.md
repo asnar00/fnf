@@ -17,8 +17,8 @@ The `def` keyword means that we're defining a new function called `hello`; if th
 We define our own function `print` that initially outputs to standard console, but eventually can also print stuff in the browser, or anywhere else we like. That's the magic of features!
 
 ```ts
-def print (... args: string[]) {
-    console.log(...args);
+def print (msg: string, indent: number=0) {
+    console.log(msg);
 }
 ```
 
@@ -32,7 +32,7 @@ Let's define a little structure as well:
 
 And we can also define feature-scoped variables like this:
 
-    server my_colour : Colour = new Colour(1, 2, 3);
+    my_colour : Colour = new Colour(1, 2, 3);
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
