@@ -33,16 +33,10 @@
     ],
     "variables": [
         {
-            "modifier": null,
-            "name": "Feature",
-            "type": null,
-            "defaultValue": null
-        },
-        {
             "modifier": "server",
             "name": "my_colour",
             "type": "Colour",
-            "defaultValue": "Colour(1, 2, 3)"
+            "defaultValue": "new Colour(1, 2, 3)"
         }
     ]
 }

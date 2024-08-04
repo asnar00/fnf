@@ -53,7 +53,7 @@ class Typescript(TargetLanguage):
         pass
 
     def extension(self):
-        return ".ts"
+        return "ts"
 
     def functionDeclarationRegex(self, modifiers: str):
         # pattern: <modifier> <name>(<params>) [: <returnType>] { ... }
@@ -92,6 +92,35 @@ class Typescript(TargetLanguage):
         regex = re.compile(pattern, re.DOTALL)
         return regex
     
+    # output a feature to a string
+    def featureToCode(self, feature):
+        code = ""
+        for s in feature.structs:
+            code += self.structToCode(s) + "\n"
+        code += f"class _{feature.name}"
+        if feature.parent:
+            code += f" extends _{feature.parent}"
+        code += " {\n"
+        for v in feature.variables:
+            code += self.variableToCode(v) + "\n"
+        for f in feature.functions:
+            code += self.functionToCode(f) + "\n"
+        code += "}"
+        return code
+    
+    # output a function to a string
+    def functionToCode(self, function):
+        return f"{function.name}{function.params} : {function.returnType} {function.body}"
+    
+    # output a struct to a string
+    def structToCode(self, struct):
+        return f"class {struct.name} {struct.body}"
+    
+    # output a variable to a string
+    def variableToCode(self, variable):
+        return f"{variable.name} : {variable.type} = {variable.defaultValue};"
+    
+    
 #----------------------------------------------------------------------------------------
 # Feature, Function, Struct and Variable classes represent the feature graph
 
@@ -122,10 +151,24 @@ class Feature:
         self.extractCode()
         self.processCode()
         self.saveJson()
+        self.saveAsLanguage(Typescript())
+
+    # save the feature as a file in the given language
+    def saveAsLanguage(self, language):
+        log_enable()
+        code = language.featureToCode(self)
+        targetPath = self.mdPath.replace(".fnf.ts.md", ".fnf."+language.extension())
+        targetPath = targetPath.replace("/source/fnf/", "/build/"+language.extension()+"/")
+        os.makedirs(os.path.dirname(targetPath), exist_ok=True)
+        with open(targetPath, "w") as file:
+            file.write(code)
+        log("saved:", targetPath)
+        log_disable()
 
     # save the feature as a json file
     def saveJson(self):
         jsonPath = self.mdPath.replace(".fnf.ts.md", ".json").replace("/source/fnf/", "/build/json/")
+        os.makedirs(os.path.dirname(jsonPath), exist_ok=True)
         with open(jsonPath, "w") as file:
             json.dump(self.toDict(), file, indent=4)
         log("saved:", jsonPath)

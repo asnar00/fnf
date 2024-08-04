@@ -3,7 +3,7 @@
 
 This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
 
-    feature Hello extends Feature;
+    feature Hello
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
 
@@ -32,7 +32,7 @@ Let's define a little structure as well:
 
 And we can also define feature-scoped variables like this:
 
-    server my_colour : Colour = Colour(1, 2, 3);
+    server my_colour : Colour = new Colour(1, 2, 3);
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
