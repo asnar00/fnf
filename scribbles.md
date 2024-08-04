@@ -41,7 +41,13 @@ Then you could say:
     >> hello asnaroo
     >> bye
 
-So you can build as many contexts as you like. 
+So you can build as many contexts as you like. And of course, you want to somehow enable a "thread-local-storage" kind of "this is the context I'm using:
+
+    select SimpleHelloWorld;
+    hello();
+    >> hello world
+
+But constructing that is going to be sort of interesting.
 
 ________________________________________________________________
 on why python for fnf.py:
