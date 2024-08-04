@@ -3,7 +3,7 @@
 
 This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
 
-    feature Hello extends Feature
+    feature Hello extends Feature;
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
 

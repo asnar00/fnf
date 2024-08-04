@@ -1,0 +1,48 @@
+{
+    "name": "Hello",
+    "functions": [
+        {
+            "modifier": "def",
+            "name": "hello",
+            "params": "()",
+            "returnType": "number",
+            "body": "{\n    print(\"hey what's up\");\n    return 0;\n}"
+        },
+        {
+            "modifier": "def",
+            "name": "print",
+            "params": "(... args: string[])",
+            "returnType": "void",
+            "body": "{\n    console.log(...args);\n}"
+        }
+    ],
+    "structs": [
+        {
+            "modifier": "struct",
+            "name": "Colour",
+            "body": "{\n    red : number = 0;\n    green: number = 0;\n    blue: number = 0;\n}",
+            "members": [
+                {
+                    "modifier": null,
+                    "name": "red",
+                    "type": "number",
+                    "defaultValue": "0;\n    green: number = 0;\n    blue: number = 0"
+                }
+            ]
+        }
+    ],
+    "variables": [
+        {
+            "modifier": null,
+            "name": "Feature",
+            "type": null,
+            "defaultValue": null
+        },
+        {
+            "modifier": "server",
+            "name": "my_colour",
+            "type": "Colour",
+            "defaultValue": "Colour(1, 2, 3)"
+        }
+    ]
+}

@@ -4,6 +4,7 @@
 
 import os
 import re
+import json
 from typing import List
 
 #----------------------------------------------------------------------------------------
@@ -35,6 +36,8 @@ def log(*args):
 class TargetLanguage:
     def __init__(self):
         pass
+    def extension(self):
+        pass
     def functionDeclarationRegex(self, modifiers: str):
         pass
     def extractFunctionBody(self, sourcePos, code):
@@ -48,6 +51,9 @@ class TargetLanguage:
 class Typescript(TargetLanguage):
     def __init__(self):
         pass
+
+    def extension(self):
+        return ".ts"
 
     def functionDeclarationRegex(self, modifiers: str):
         # pattern: <modifier> <name>(<params>) [: <returnType>] { ... }
@@ -101,10 +107,28 @@ class Feature:
         self.functions = []     # list of functions declared by the feature
         self.language = Typescript()    # for now
 
+    # return the feature as a dict
+    def toDict(self):
+        return {
+            "name": self.name,
+            "functions": [f.toDict() for f in self.functions],
+            "structs": [s.toDict() for s in self.structs],
+            "variables": [v.toDict() for v in self.variables]
+        }
+
+    # dance and sing get up and do your thing
     def process(self):
         self.readSource()
         self.extractCode()
         self.processCode()
+        self.saveJson()
+
+    # save the feature as a json file
+    def saveJson(self):
+        jsonPath = self.mdPath.replace(".fnf.ts.md", ".json").replace("/source/", "/build/")
+        with open(jsonPath, "w") as file:
+            json.dump(self.toDict(), file, indent=4)
+        log("saved:", jsonPath)
 
     # read source file into self.text
     def readSource(self):
@@ -251,6 +275,15 @@ class Function:
         self.returnType = returnType if returnType else "void"
         self.body = body
 
+    def toDict(self):
+        return {
+            "modifier": self.modifier,
+            "name": self.name,
+            "params": self.params,
+            "returnType": self.returnType,
+            "body": self.body
+        }
+
     def toString(self):
         return f"{self.modifier} {self.name}{self.params} : {self.returnType} {self.body}"
 
@@ -262,6 +295,14 @@ class Struct:
         self.body = body
         self.members = []
 
+    def toDict(self):
+        return {
+            "modifier": self.modifier,
+            "name": self.name,
+            "body": self.body,
+            "members": [m.__dict__ for m in self.members]
+        }
+
     def toString(self):
         return f"{self.modifier} {self.name} {self.body}"
 
@@ -272,6 +313,14 @@ class Variable:
         self.name = name
         self.type = type
         self.defaultValue = defaultValue
+
+    def toDict(self):
+        return {
+            "modifier": self.modifier,
+            "name": self.name,
+            "type": self.type,
+            "defaultValue": self.defaultValue
+        }
 
     def toString(self):
         return f"{self.modifier if self.modifier is not None else ""} {self.name} : {self.type} = {self.defaultValue}"
