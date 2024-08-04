@@ -1,12 +1,65 @@
 # scribbles
 
+Thought experiment: dealing with namespaces.
+
+Even though our code wants to just use "print(xxx)", we clearly can't operate in global symbol space because we're usually going to be sitting on top of systems that define global symbols, so stuff will clash (eg. print in the last attempt).
+
+So there has to be some kind of namespace object. And I think that namespace object is just the "context". Think about it:
+
+- specifies a set of features it applies to
+- defines enabled/disabled for those features
+- contains a specific set of data members (persistent)
+- which resolves to a specific set of data structures and functions on them
+
+So if you have something like
+
+    feature Hello {
+        const person = "world";
+        on hello() { print(`hello ${person}`); }
+    }
+
+    feature Goodbye {
+        after hello() { goodbye(); }
+        on goodbye() { print("bye"); }
+    }
+
+Then you could say:
+
+    context SimpleHelloWorld {
+        Hello { person : "world"; }
+    }
+
+    context ComplexHelloAsnaroo {
+        Hello { person : "asnaroo"; }
+        Goodbye {}
+    }
+
+    SimpleHelloWorld.hello()
+    >> hello world
+
+    ComplexHelloAsnaroo.hello()
+    >> hello asnaroo
+    >> bye
+
+So you can build as many contexts as you like. 
+
+________________________________________________________________
+on why python for fnf.py:
+
+- deno/ts are actually different targets; too hard to write code for them both
+- deno isn't the only choice, and we don't want to limit fnf to it
+- python is easy to code in!
+
+
+
+__________________________________________________________________
 So here we are in our weird little fnf thing.
-The original approach was reasonable, but it depends on far too much type-script kung-fu.
+
+The original approach was reasonable, but it depends on far too much type-script kung-fu. The thing that killed it was the conflict of the global function "print" with something defined in node.js.
+
+It was, however, useful as a "taste test" of feature-modular stuff. 
+
 So the right thing to do is to hand-code the FNF processor, and eventually reconstruct it from the patches.
-
-
-
-
 __________________________________________________________
 
 Annoyingly, I think the namespace clash thing has made the "poke-into-global function" thing untenable.
