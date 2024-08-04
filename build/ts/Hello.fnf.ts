@@ -1,15 +1,22 @@
 class Colour {
     red : number = 0;
-    green: number = 0;
-    blue: number = 0;
+    green : number = 0;
+    blue : number = 0;
+    constructor(red : number = 0, green : number = 0, blue : number = 0) {
+        this.red = red;
+        this.green = green;
+        this.blue = blue;
+    }
 }
-class _Hello {
-my_colour : Colour = new Colour(1, 2, 3);;
-hello[] : number {
-    print("hey what's up");
-    return 0;
-}
-print[<__main__.Variable object at 0x104cf4350>, <__main__.Variable object at 0x104cf4650>] : void {
-    console.log(msg);
-}
+
+class _Hello extends _Feature {
+    my_colour : Colour = new Colour(1, 2, 3);
+    
+    static hello(_cx: any) : number {
+        _cx.print(_cx, "hey what's up");
+        return 0;
+    }
+    static print(_cx: any, msg : string, indent : number = 0) : void {
+        console.log(msg);
+    }
 }

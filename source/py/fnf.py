@@ -33,6 +33,7 @@ def log(*args):
 
 #----------------------------------------------------------------------------------------
 # target language classes output code in the target language
+
 class TargetLanguage:
     def __init__(self):
         pass
@@ -46,7 +47,6 @@ class TargetLanguage:
         pass
     def variableDeclarationRegex(self):
         pass
-
 
 class Typescript(TargetLanguage):
     def __init__(self):
@@ -97,30 +97,102 @@ class Typescript(TargetLanguage):
         code = ""
         for s in feature.structs:
             code += self.structToCode(s) + "\n"
+        if len(feature.structs) > 0: code += "\n"
         code += f"class _{feature.name}"
         if feature.parent:
             code += f" extends _{feature.parent}"
         code += " {\n"
+        inner = ""
         for v in feature.variables:
-            code += self.variableToCode(v) + "\n"
+            inner += self.variableToCode(v) + ";\n"
+        inner += "\n"
         for f in feature.functions:
-            code += self.functionToCode(f) + "\n"
-        code += "}"
+            inner += self.functionToCode(f) + "\n"
+        code += self.indent(inner) + "}\n"
         return code
     
     # output a function to a string
     def functionToCode(self, function):
-        return f"{function.name}{function.params} : {function.returnType} {function.body}"
+        out : str = ""
+        out += f"static {function.name}("
+        out += "_cx: any"
+        if len(function.params) > 0:
+            out += ", "
+            for i, p in enumerate(function.params):
+                out += self.variableToCode(p)
+                if i < len(function.params)-1:
+                    out += ", "
+        out += f") "
+        out += f": {function.returnType} "
+        out += f"{self.replaceFunctionCalls(function.body)}"
+        return out
+    
+    # Replace function calls with _cx.<functionName>(_cx, ...)
+    def replaceFunctionCalls(self, code):
+        # Simple pattern to capture function names followed by an opening parenthesis
+        pattern = r"\b(\w+)\("
+        def replace_function_call(match):
+            # Get the start position of the match
+            start = match.start()
+            # Check if the preceding character is a dot
+            if start > 0 and code[start - 1] == '.':
+                # It's a method call, so return it unchanged
+                return match.group(0)
+            else:
+                # It's a standalone function, modify it
+                fn_name = match.group(1)
+                return f"_cx.{fn_name}(_cx, "
+        # Perform the replacement
+        return re.sub(pattern, replace_function_call, code)
     
     # output a struct to a string
     def structToCode(self, struct):
-        return f"class {struct.name} {struct.body}"
+        out = f"class {struct.name} {{\n"
+        inner = ""
+        for m in struct.members:
+            inner += self.variableToCode(m) + ";\n"
+        inner += f"constructor("
+        for i, m in enumerate(struct.members):
+            inner += self.variableToCode(m)
+            if i < len(struct.members)-1:
+                inner += ", "
+        inner += ") {\n"
+        for m in struct.members:
+            inner += f"    this.{m.name} = {m.name};\n"
+        inner += "}\n"
+        out += self.indent(inner)
+        out += "}"
+        return out
     
     # output a variable to a string
     def variableToCode(self, variable):
-        return f"{variable.name} : {variable.type} = {variable.defaultValue};"
+        out : str = ""
+        if variable.modifier:
+            out += f"{variable.modifier} "
+        out += f"{variable.name}"
+        if variable.type:
+            out +=  " : " + variable.type
+        if variable.defaultValue:
+            out += " = " + variable.defaultValue
+        return out
+    
+    # indent a string by 4 spaces
+    def indent(self, s):
+        out = "    " + s.replace("\n", "\n    ")
+        if out.endswith("\n    "):
+            out = out[:-4]
+        return out
     
     
+#--------------------------------------------------------------------------------------
+    
+
+# global dict mapping extension "ts" to language class Typescript
+global targetLanguages
+targetLanguages = {
+    "ts": Typescript()
+}
+
 #----------------------------------------------------------------------------------------
 # Feature, Function, Struct and Variable classes represent the feature graph
 
@@ -128,13 +200,20 @@ class Typescript(TargetLanguage):
 class Feature:
     def __init__(self, mdPath):
         # extract the feature name from the path, without extensions
-        self.name = os.path.basename(mdPath).split(".")[0]
+        parts = os.path.basename(mdPath).split(".")     # should be {"blah", "fnf", "ts", "md"}
+        self.name : str = parts[0]                      # the name of the feature
+        self.extension : str = parts[2]                 # the language extension of the feature
         log("feature name:", self.name)
-        self.mdPath = mdPath    # the path to the .fnf.md file
-        self.text = ""          # the text of the feature
-        self.sourceMap = []     # maps output line numbers to source line numbers
-        self.functions = []     # list of functions declared by the feature
-        self.language = Typescript()    # for now
+        log("extension:", self.extension)
+        global targetLanguages
+        self.language = targetLanguages[self.extension] # the language of the feature
+        if self.language is None:
+            raise Exception(f"{mdPath}: unknown language extension {self.extension}")
+        self.mdPath = mdPath                            # the path to the .fnf.md file
+        self.text = ""                                  # the text of the feature
+        self.sourceMap: List[int] = []                  # maps output line numbers to source line numbers
+        self.functions: List[Function] = []             # list of functions declared by the feature
+        self.parent: str = "Feature"                   # the parent feature; by default, _Feature
 
     # return the feature as a dict
     def toDict(self):
@@ -225,7 +304,7 @@ class Feature:
         if len(results)>1:
             raise Exception("Multiple feature declarations found")
         self.name = results[0][0]
-        self.parent = results[0][1]
+        if results[0][1]: self.parent = results[0][1]
         log("feature name:", self.name)
         log("parent name:", self.parent)
     
@@ -316,6 +395,8 @@ class Feature:
             defaultValue = match.group(4)
             if not (name != None and modifier == None and type == None and defaultValue == None):
                 log("match:", "modifier:", modifier, "name:", name, "type:", type, "defaultValue:", defaultValue)
+                if defaultValue and defaultValue.endswith(";"):
+                    defaultValue = defaultValue[:-1]
                 variables.append(Variable(modifier, name, type, defaultValue))
         for v in variables:
             log(v.toString())

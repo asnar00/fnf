@@ -39,19 +39,19 @@
                     "modifier": null,
                     "name": "red",
                     "type": "number",
-                    "defaultValue": "0;"
+                    "defaultValue": "0"
                 },
                 {
                     "modifier": null,
                     "name": "green",
                     "type": "number",
-                    "defaultValue": "0;"
+                    "defaultValue": "0"
                 },
                 {
                     "modifier": null,
                     "name": "blue",
                     "type": "number",
-                    "defaultValue": "0;"
+                    "defaultValue": "0"
                 }
             ]
         }
@@ -61,7 +61,7 @@
             "modifier": null,
             "name": "my_colour",
             "type": "Colour",
-            "defaultValue": "new Colour(1, 2, 3);"
+            "defaultValue": "new Colour(1, 2, 3)"
         }
     ]
 }
