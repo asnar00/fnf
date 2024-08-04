@@ -33,10 +33,59 @@ def log(*args):
 #----------------------------------------------------------------------------------------
 # target language classes output code in the target language
 class TargetLanguage:
-    def __init__(self, name, extension):
-        self.name = name
-        self.extension = extension
+    def __init__(self):
+        pass
+    def functionDeclarationRegex(self, modifiers: str):
+        pass
+    def extractFunctionBody(self, sourcePos, code):
+        pass
+    def structDeclarationRegex(self):
+        pass
+    def variableDeclarationRegex(self):
+        pass
 
+
+class Typescript(TargetLanguage):
+    def __init__(self):
+        pass
+
+    def functionDeclarationRegex(self, modifiers: str):
+        # pattern: <modifier> <name>(<params>) [: <returnType>] { ... }
+        mod_pattern = r'\b(' + '|'.join(modifiers) + r')\b'
+        pattern = rf"{mod_pattern}\s+(\w+)\s*\(([^)]*)\)(?:\s*:\s*(\w+))?\s*{{"
+        regex = re.compile(pattern, re.DOTALL)
+        return regex
+    
+    # given a position in the source, extract a function body "{" ... "}"
+    def extractFunctionBody(self, sourcePos, code):
+        # Start with a count of 1 because we start after the first opening brace
+        nBraces = 1
+        i = sourcePos
+        while i < len(code) and nBraces > 0:
+            if code[i] == '{':
+                nBraces += 1
+            elif code[i] == '}':
+                nBraces -= 1
+            i += 1
+        return code[sourcePos-1:i]
+    
+    # return regex to match a struct declaration: 
+    def structDeclarationRegex(self):
+        # pattern: struct <name> { ... }
+        pattern = r"(struct|extend) (\w+)\s*{"
+        regex = re.compile(pattern, re.DOTALL)
+        return regex
+    
+    # return regex to match a variable declaration:
+    def variableDeclarationRegex(self):
+        modifiers = ["const", "var", "client", "server"]
+        # Regex pattern for optional single modifier:
+        mod_pattern = r'\b(?:' + '|'.join(modifiers) + r')\b'
+        # Pattern: <modifier>? <name> : <type> = <defaultValue>; ": <type>" and "= <defaultValue>" are optional:
+        pattern = rf"({mod_pattern})?\s+(\w+)\s*(?::\s*(\w+))?(?:\s*=\s*(.*))?;"
+        regex = re.compile(pattern, re.DOTALL)
+        return regex
+    
 #----------------------------------------------------------------------------------------
 # Feature, Function, Struct and Variable classes represent the feature graph
 
@@ -50,6 +99,7 @@ class Feature:
         self.text = ""          # the text of the feature
         self.sourceMap = []     # maps output line numbers to source line numbers
         self.functions = []     # list of functions declared by the feature
+        self.language = Typescript()    # for now
 
     def process(self):
         self.readSource()
@@ -96,6 +146,7 @@ class Feature:
         self.findFeatureDeclaration()
         self.findFunctionDeclarations()
         self.findStructDeclarations()
+        self.findFeatureVarables()
 
     # find the feature declaration
     def findFeatureDeclaration(self):
@@ -117,12 +168,10 @@ class Feature:
         log("code:", self.code)
         self.functions = []
         modifiers = ["def", "replace", "on", "before", "after"]
-        mod_pattern = r'\b(' + '|'.join(modifiers) + r')\b'
-        pattern = rf"{mod_pattern}\s+(\w+)\s*\(([^)]*)\)(?:\s*:\s*(\w+))?\s*{{"
-        regex = re.compile(pattern, re.DOTALL)
+        regex = self.language.functionDeclarationRegex(modifiers)
         for match in regex.finditer(self.code):
             sourcePos = match.end()
-            body = self.extractFunctionBody(sourcePos)
+            body = self.language.extractFunctionBody(sourcePos, self.code)
             if body is not None:
                 modifier = match.group(1)
                 name = match.group(2)
@@ -138,11 +187,10 @@ class Feature:
     def findStructDeclarations(self):
         log("findStructDeclarations")
         self.structs = []
-        pattern = r"(struct|extend) (\w+)\s*{"
-        regex = re.compile(pattern, re.DOTALL)
+        regex = self.language.structDeclarationRegex()
         for match in regex.finditer(self.code):
             sourcePos = match.end()
-            body = self.extractFunctionBody(sourcePos)
+            body = self.language.extractFunctionBody(sourcePos, self.code)
             if body is not None:
                 modifier = match.group(1)
                 name = match.group(2)
@@ -152,37 +200,42 @@ class Feature:
         for s in self.structs:
             log(s.toString())
             s.members = self.findVariableDeclarations(s.body)
-            
 
-    # find variable declarations
+    # find feature-scoped variable declarations
+    def findFeatureVarables(self):
+        log("findFeatureVarables")
+        # first find all code outside "{" ... "}" blocks
+        outerCode = self.findOuterCode(self.code)
+        # then find all variable declarations in that code
+        self.variables = self.findVariableDeclarations(outerCode)
+
+    # find all code lines that aren't inside a { block }
+    def findOuterCode(self, code):
+        outerCode = ""
+        inBlock = False
+        for i, c in enumerate(self.code):
+            if c == '{':
+                inBlock = True
+            elif c == '}':
+                inBlock = False
+            elif not inBlock:
+                outerCode += c
+        return outerCode
+
+    # find variable declarations in a given code block
     def findVariableDeclarations(self, code):
-        log("findVariableDeclarations")
-        log("code:", code)
+        log("findVariableDeclarations---------------------------------------")
         variables = []
-        # pattern: <name> : <type> = <defaultValue>; ": <type>" and "= <defaultValue>" are optional
-        pattern = rf"(\w+)(?:\s*:\s*(\w+))?(?:\s*=\s*(.*?))?;"
-        regex = re.compile(pattern, re.DOTALL)
+        regex = self.language.variableDeclarationRegex()
         for match in regex.finditer(code):
-            name = match.group(1)
-            type = match.group(2)
-            defaultValue = match.group(3)
-            variables.append(Variable(name, type, defaultValue))
+            modifier = match.group(1)
+            name = match.group(2)
+            type = match.group(3)
+            defaultValue = match.group(4)
+            variables.append(Variable(modifier, name, type, defaultValue))
         for v in variables:
             log(v.toString())
         return variables
-
-    # given a position in the source, extract a function body "{" ... "}"
-    def extractFunctionBody(self, sourcePos):
-        # Start with a count of 1 because we start after the first opening brace
-        nBraces = 1
-        i = sourcePos
-        while i < len(self.code) and nBraces > 0:
-            if self.code[i] == '{':
-                nBraces += 1
-            elif self.code[i] == '}':
-                nBraces -= 1
-            i += 1
-        return self.code[sourcePos-1:i]
     
     # print an error message given an index in the code
     def error(self, index, message):
@@ -214,13 +267,14 @@ class Struct:
 
 # represents a variable declared by a feature
 class Variable:
-    def __init__(self, name, type=None, defaultValue=None):
+    def __init__(self, modifier, name, type=None, defaultValue=None):
+        self.modifier = modifier
         self.name = name
         self.type = type
         self.defaultValue = defaultValue
 
     def toString(self):
-        return f"{self.name} : {self.type} = {self.defaultValue}"
+        return f"{self.modifier if self.modifier is not None else ""} {self.name} : {self.type} = {self.defaultValue}"
 
 #----------------------------------------------------------------------------------------
 # FeatureManager builds the feature graph from the input code, and outputs the target code
@@ -262,13 +316,12 @@ class FeatureManager:
         filesFound = []
         for root, dirs, files in os.walk(self.cwd):
             for file in files:
-                if file.endswith(".fnf.md"):
+                if file.endswith(".fnf.ts.md"):
                     filesFound.append(os.path.join(root, file))
         # sort files into ascending order of creation-date
         filesFound.sort(key=os.path.getctime)
         log("filesFound:", filesFound)
         return filesFound
-
 
 #----------------------------------------------------------------------------------------
 def main():
