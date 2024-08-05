@@ -32,6 +32,15 @@ def log(*args):
 
 
 #----------------------------------------------------------------------------------------
+# SourceLine contains a line of source code and the index of the line in the source file
+
+class SourceLine:
+    def __init__(self, line, index, tag=""):
+        self.index = index                  # 1-based index in the source md file
+        self.line = line                    # the code itself
+        self.tag = tag                       # what tag we decided this line should have
+
+#----------------------------------------------------------------------------------------
 # target language classes output code in the target language
 
 class TargetLanguage:
@@ -55,80 +64,120 @@ class Typescript(TargetLanguage):
     def extension(self):
         return "ts"
 
-    def functionDeclarationRegex(self, modifiers: str):
-        # pattern: <modifier> <name>(<params>) [: <returnType>] { ... }
-        mod_pattern = r'\b(' + '|'.join(modifiers) + r')\b'
-        pattern = rf"{mod_pattern}\s+(\w+)\s*\(([^)]*)\)(?:\s*:\s*(\w+))?\s*{{"
-        regex = re.compile(pattern, re.DOTALL)
-        return regex
+    def outputStruct(self, block: List[SourceLine]) -> List[SourceLine]:
+        out : List[SourceLine] = []
+        vars: List[Variable] = []
+        for line in block:
+            code = line.line
+            if line.tag == "struct":
+                code = code.replace("struct", "export class")
+            vs = self.parseVariables(line.line)
+            out.append(SourceLine(code, line.index, line.tag))
+            vars += vs
+        out = self.outputConstructor(out, vars)
+        return out
     
-    # given a position in the source, extract a function body "{" ... "}"
-    def extractFunctionBody(self, sourcePos, code):
-        # Start with a count of 1 because we start after the first opening brace
-        nBraces = 1
-        i = sourcePos
-        while i < len(code) and nBraces > 0:
-            if code[i] == '{':
-                nBraces += 1
-            elif code[i] == '}':
-                nBraces -= 1
-            i += 1
-        return code[sourcePos-1:i]
-    
-    # return regex to match a struct declaration: 
-    def structDeclarationRegex(self):
-        # pattern: struct <name> { ... }
-        pattern = r"(struct|extend) (\w+)\s*{"
-        regex = re.compile(pattern, re.DOTALL)
-        return regex
-    
-    # return regex to match a variable declaration:
-    def variableDeclarationRegex(self, modifiers =[]):
-        # Create a regex pattern that matches only the modifiers in the list, including optional whitespace after
-        modifier_pattern = r"(?:" + "|".join(modifiers) + r")\s*"
+    def outputConstructor(self, lines: List[SourceLine], vars) -> List[SourceLine]:
+        # remove last "}"
+        lastLine = lines[-1].line.rstrip()
+        if lastLine.endswith("}"):
+            lines[-1].line = lastLine[:-1].rstrip()
+        # add constructor signature
+        con = "    constructor("
+        for i, v in enumerate(vars):
+            con += v.toString()
+            if i < len(vars) - 1:
+                con += ", "
+        con += ") {"
+        # and innards
+        lines.append(SourceLine(con, lines[-1].index))
+        for v in vars:
+            lines.append(SourceLine(f"        this.{v.name} = {v.name};",lines[-1].index))
+        # don't forget to close it off
+        lines.append(SourceLine("    }", 0))
+        lines.append(SourceLine("}", 0))
+        return lines
+
+    # examines a single string and returns one or more variable declarations
+    def parseVariables(self, code: str):     # returns list of variables
+        log("parseVariables:", code)
         # Define the complete regex pattern, where the entire modifier pattern is optional
-        pattern = rf"^({modifier_pattern})?\s*(\w+)\s*(?::\s*(\w+))?(?:\s*=\s*(.*))?"
+        pattern = r"(?:(var|const)\s+)?(\w+)\s*(?::\s*(\w+))?(?:\s*=\s*(.*?))?(?=[;\n])"
         # Compile the regex pattern for better performance if it's used multiple times
-        regex = re.compile(pattern, re.MULTILINE)
-        return regex
+        regex = re.compile(pattern)
+        variables = []
+        for match in regex.finditer(code):
+            modifier = match.group(1)
+            name = match.group(2)
+            type = match.group(3)
+            defaultValue = match.group(4)
+            if not (name != None and modifier == None and type == None and defaultValue == None):
+                log("match:", "modifier:", modifier, "name:", name, "type:", type, "defaultValue:", defaultValue)
+                if defaultValue and defaultValue.endswith(";"):
+                    defaultValue = defaultValue[:-1]
+                variables.append(Variable(modifier, name, type, defaultValue))
+        return variables
     
-    # output a feature to a string
-    def featureToCode(self, feature):
-        code = ""
-        for s in feature.structs:
-            code += self.structToCode(s) + "\n"
-        if len(feature.structs) > 0: code += "\n"
-        code += f"class _{feature.name}"
-        if feature.parent:
-            code += f" extends _{feature.parent}"
-        code += " {\n"
-        inner = ""
-        for v in feature.variables:
-            inner += self.variableToCode(v) + ";\n"
-        inner += "\n"
-        for f in feature.functions:
-            inner += self.functionToCode(f) + "\n"
-        code += self.indent(inner) + "}\n"
-        return code
+    # outputs a feature declaration
+    def outputFeatureDecl(self, block: List[SourceLine]) -> List[SourceLine]:
+        out : List[SourceLine] = []
+        if len(block) != 1:
+            raise Exception("expected exactly one feature declaration")
+        line = block[0]
+        code = line.line
+        pattern = r"feature (\w+)(?: extends (\w+))?"
+        matches = re.findall(pattern, code)
+        if len(matches) != 1:
+            raise Exception("expected exactly one feature declaration")
+        name = matches[0][0]
+        parent = matches[0][1]
+        if parent == None: parent = "Feature"
+        out.append(SourceLine(f"export class _{name} extends _{parent} {{" , line.index, line.tag))
+        return out
     
-    # output a function to a string
-    def functionToCode(self, function):
-        out : str = ""
-        out += f"static {function.name}("
-        out += "_cx: any"
-        if len(function.params) > 0:
-            out += ", "
-            for i, p in enumerate(function.params):
-                out += self.variableToCode(p)
-                if i < len(function.params)-1:
-                    out += ", "
-        out += f") "
-        out += f": {function.returnType} "
-        out += f"{self.replaceFunctionCalls(function.body)}"
+    # outputs a variable declaration
+    def outputVariables(self, block: List[SourceLine]) -> List[SourceLine]:
+        out : List[SourceLine] = []
+        for line in block:
+            vars = self.parseVariables(line.line)
+            for v in vars:
+                out.append(SourceLine("    " + v.toString() + ";", line.index, line.tag))
+        return out
+    
+    # outputs a function declaration/definition
+    def outputFunction(self, block: List[SourceLine]) -> List[SourceLine]:
+        log_enable()
+        log("outputFunction")
+        out : List[SourceLine] = []
+
+        # first identify name, params of the function
+        if len(block) < 1:
+            raise Exception("expected at least one line in function block")
+        code = block[0].line
+        pattern = r"(\w+)\s*\((.*?)\)"
+        match = re.search(pattern, code)
+        if match == None:
+            raise Exception("function declaration not found")
+        name = match.group(1)
+        params = match.group(2).strip()
+        log("name:", name, "params:", params)
+
+        # now replace all function calls fn(...) with _cx.fn(_cx, ...)
+        for line in block:
+            code = self.replaceFunctionCalls(line.line, name)
+            out.append(SourceLine("    " + code, line.index, line.tag))
+
+        # finally, add "cx: any" to the parameter list, and replace the modifier with "static"
+        code = out[0].line
+        iSpace = code.index(" ", 4)
+        log("iSpace:", iSpace)
+        code = "    static" + code[iSpace:]
+        iBracket = code.index("(")
+        out[0].line = code[:iBracket+1] + "_cx: any" + (", " if params != "" else "") + code[iBracket+1:]
         return out
     
     # Replace function calls with _cx.<functionName>(_cx, ...)
-    def replaceFunctionCalls(self, code):
+    def replaceFunctionCalls(self, code, exceptName):
         # Simple pattern to capture function names followed by an opening parenthesis
         pattern = r"\b(\w+)\("
         def replace_function_call(match):
@@ -139,50 +188,32 @@ class Typescript(TargetLanguage):
                 # It's a method call, so return it unchanged
                 return match.group(0)
             else:
-                # It's a standalone function, modify it
+                # It's a standalone function, modify it (if allowed)
                 fn_name = match.group(1)
+                if fn_name == exceptName:
+                    return match.group(0)
                 return f"_cx.{fn_name}(_cx, "
         # Perform the replacement
         return re.sub(pattern, replace_function_call, code)
     
-    # output a struct to a string
-    def structToCode(self, struct):
-        out = f"class {struct.name} {{\n"
-        inner = ""
-        for m in struct.members:
-            inner += self.variableToCode(m) + ";\n"
-        inner += f"constructor("
-        for i, m in enumerate(struct.members):
-            inner += self.variableToCode(m)
-            if i < len(struct.members)-1:
-                inner += ", "
-        inner += ") {\n"
-        for m in struct.members:
-            inner += f"    this.{m.name} = {m.name};\n"
-        inner += "}\n"
-        out += self.indent(inner)
-        out += "}"
+    # outputs a test
+    def outputTest(self, block: List[SourceLine], mdFile) -> List[SourceLine]:
+        out : List[SourceLine] = []
+        out.append(SourceLine("    _test() {", 0))
+        out.append(SourceLine(f'        _source("{mdFile}", 0);', 0))
+        for line in block:
+            code = line.line
+            parts = code.split("==>")
+            lhs = parts[0].strip()
+            rhs = parts[1].strip() if len(parts) > 1 else ""
+            outcode = ""
+            if rhs == "":
+                outcode = f'        _output({lhs}, {line.index});'
+            else:
+                outcode = f'        _assert({lhs}, {rhs}, {line.index});'
+            out.append(SourceLine(outcode, line.index, line.tag))
+        out.append(SourceLine("    }", 0))
         return out
-    
-    # output a variable to a string
-    def variableToCode(self, variable):
-        out : str = ""
-        if variable.modifier:
-            out += f"{variable.modifier} "
-        out += f"{variable.name}"
-        if variable.type:
-            out +=  " : " + variable.type
-        if variable.defaultValue:
-            out += " = " + variable.defaultValue
-        return out
-    
-    # indent a string by 4 spaces
-    def indent(self, s):
-        out = "    " + s.replace("\n", "\n    ")
-        if out.endswith("\n    "):
-            out = out[:-4]
-        return out
-    
     
 #--------------------------------------------------------------------------------------
     
@@ -210,35 +241,24 @@ class Feature:
         if self.language is None:
             raise Exception(f"{mdPath}: unknown language extension {self.extension}")
         self.mdPath = mdPath                            # the path to the .fnf.md file
-        self.text = ""                                  # the text of the feature
-        self.sourceMap: List[int] = []                  # maps output line numbers to source line numbers
-        self.functions: List[Function] = []             # list of functions declared by the feature
-        self.parent: str = "Feature"                   # the parent feature; by default, _Feature
-
-    # return the feature as a dict
-    def toDict(self):
-        return {
-            "name": self.name,
-            "functions": [f.toDict() for f in self.functions],
-            "structs": [s.toDict() for s in self.structs],
-            "variables": [v.toDict() for v in self.variables]
-        }
+        self.source : List[SourceLine] = []             # the source code extracted from the md file
 
     # dance and sing get up and do your thing
     def process(self):
-        self.readSource()
-        self.extractCode()
+        self.readText()
+        self.extractSource()
         self.processCode()
-        self.saveJson()
-        self.saveAsLanguage(Typescript())
+        self.saveTargetLanguage()
 
     # save the feature as a file in the given language
-    def saveAsLanguage(self, language):
+    def saveTargetLanguage(self):
         log_enable()
-        code = language.featureToCode(self)
-        targetPath = self.mdPath.replace(".fnf.ts.md", ".fnf."+language.extension())
-        targetPath = targetPath.replace("/source/fnf/", "/build/"+language.extension()+"/")
+        targetPath = self.mdPath.replace(".fnf.ts.md", ".fnf."+self.language.extension())
+        targetPath = targetPath.replace("/source/fnf/", "/build/"+self.language.extension()+"/")
         os.makedirs(os.path.dirname(targetPath), exist_ok=True)
+        code = ""
+        for line in self.source:
+            code += line.line + "\n"
         with open(targetPath, "w") as file:
             file.write(code)
         log("saved:", targetPath)
@@ -253,24 +273,22 @@ class Feature:
         log("saved:", jsonPath)
 
     # read source file into self.text
-    def readSource(self):
+    def readText(self):
         with open(self.mdPath, "r") as file:
             self.text = file.read()
-        log("source:", self.text)
+        log("text:", self.text)
 
-    # extract code from text, get source-map
-    def extractCode(self):
-        log("extractCode", self.mdPath)
-        self.code = ""
-        self.sourceMap = []
+    # extract source code from text, as List[SourceLine]
+    def extractSource(self):
+        log("extractSource", self.mdPath)
+        self.source = []
         lines = self.text.split("\n")
         inCodeBlock = False
         for i, line in enumerate(lines):
             if not inCodeBlock:
                 if line.startswith("    "):
                     codeLine = line[4:].rstrip()
-                    self.code += codeLine + "\n"
-                    self.sourceMap.append(i+1)
+                    self.source.append(SourceLine(codeLine, i+1))
                 else:
                     if line.startswith("```"):
                         inCodeBlock = True
@@ -279,133 +297,100 @@ class Feature:
                     inCodeBlock = False
                 else:
                     codeLine = line.rstrip()
-                    self.code += codeLine + "\n"
-                    self.sourceMap.append(i+1)
-        # strip any empty or blank lines from the end of (code)
-        self.code = self.code.rstrip()
-        codeSplit = self.code.split("\n")
-        for i, line in enumerate(codeSplit):
-            log(i+1,":", line, "=>", self.sourceMap[i])
+                    self.source.append(SourceLine(codeLine, i+1))
+
+    # show the source code
+    def showSource(self, lines):
+        for i, line in enumerate(lines):
+            log(f"{i+1} => {line.index}: [{line.tag}] {line.line}")
+
+    # show blocks
+    def showBlocks(self, name, blocks):
+        log("showing", name, len(blocks))   
+        for i, block in enumerate(blocks):
+            log("--------------------------------")
+            self.showSource(block)
+
 
     # process code to extract a list of variables, functions and structs
     def processCode(self):
-        self.findFeatureDeclaration()
-        self.findFunctionDeclarations()
-        self.findStructDeclarations()
-        self.findFeatureVariables()
+        self.tagSource()
+        self.extractBlocks()
+        self.translateSource()
 
-    # find the feature declaration
-    def findFeatureDeclaration(self):
-        pattern = r"feature (\w+)(?: extends (\w+))?"
-        matches = re.findall(pattern, self.code)
-        results = [(name, parent if parent else None) for name, parent in matches]
-        if len(results)==0:
-            raise Exception("Feature declaration not found")
-        if len(results)>1:
-            raise Exception("Multiple feature declarations found")
-        self.name = results[0][0]
-        if results[0][1]: self.parent = results[0][1]
-        log("feature name:", self.name)
-        log("parent name:", self.parent)
-    
-    # find function declarations
-    def findFunctionDeclarations(self):
-        log("findFunctionDeclarations")
-        log("code:", self.code)
-        self.functions = []
-        modifiers = ["def", "replace", "on", "before", "after"]
-        regex = self.language.functionDeclarationRegex(modifiers)
-        for match in regex.finditer(self.code):
-            sourcePos = match.end()
-            body = self.language.extractFunctionBody(sourcePos, self.code)
-            if body is not None:
-                modifier = match.group(1)
-                name = match.group(2)
-                log_enable()
-                params = self.processParams(match.group(3))
-                log_disable()
-                returnType = match.group(4)
-                self.functions.append(Function(modifier, name, params, returnType, body))
-            else:
-                log("body: None")
-        for f in self.functions:
-            log(f.toString())
+    # for each line, figure out what kind of line it is
+    def tagSource(self):
+        tags = ["feature", "def", "replace", "on", "before", "after", "struct", "extend", "var", "const"]
+        for line in self.source:
+            firstWord = line.line.strip().split(" ")[0]
+            if firstWord in tags:
+                line.tag = firstWord
+            elif "==>" in line.line:
+                line.tag = "test"
 
-    # separate a list of parameters and return a list of vars
-    def processParams(self, params):
-        log("processParams")
-        ps = params.split(",")
-        vs = []
-        for p in ps:
-            vars = self.findVariableDeclarations(p.strip())
-            vs += vars
-        return vs
+    # structs first, then feature, then vars, then functions
+    def extractBlocks(self):
+        self.structs: List[List[SourceLine]] = []
+        self.functions: List[List[SourceLine]] = []
+        self.variables: List[List[SourceLine]] = []
+        self.tests: List[List[SourceLine]] = []
+        self.featureDecl: List[List[SourceLine]] = []
 
-    # find struct declarations
-    def findStructDeclarations(self):
-        log("findStructDeclarations")
-        self.structs = []
-        regex = self.language.structDeclarationRegex()
-        for match in regex.finditer(self.code):
-            sourcePos = match.end()
-            body = self.language.extractFunctionBody(sourcePos, self.code)
-            if body is not None:
-                modifier = match.group(1)
-                name = match.group(2)
-                self.structs.append(Struct(modifier, name, body))
-            else:
-                log("body: None")
-        for s in self.structs:
-            log(s.toString())
-            s.members = self.findVariableDeclarations(s.body)
+        for i, line in enumerate(self.source):
+            if line.tag == "":
+                continue
+            j = i+1
+            while j < len(self.source) and self.source[j].tag == "":
+                j += 1
+            block = self.source[i:j]
+            if line.tag in ["struct", "extend"]:
+                self.structs.append(block)
+            elif line.tag == "feature":
+                self.featureDecl.append(block)
+            elif line.tag in ["var", "const", "let"]:
+                self.variables.append(block)
+            elif line.tag in ["def", "replace", "on", "before", "after"]:
+                self.functions.append(block)
+            elif line.tag == "test":
+                self.tests.append(block)
 
-    # find feature-scoped variable declarations
-    def findFeatureVariables(self):
+        if len(self.featureDecl) != 1:
+            raise Exception(f"expected exactly one feature declaration, found {len(self.featureDecl)}")
+
+
+    def translateSource(self):
+        out : List[SourceLine] = []
+        for block in self.structs:
+            out += self.language.outputStruct(block)
+        for block in self.featureDecl:
+            out += self.language.outputFeatureDecl(block)
+        for block in self.variables:
+            out += self.language.outputVariables(block)
+        for block in self.functions:
+            out += self.language.outputFunction(block)
+        # join self.tests into a single block:
+        testBlock = []
+        for block in self.tests:
+            testBlock += block
+        out += self.language.outputTest(testBlock, self.mdPath)
+        out += [SourceLine("}", 0)]
+
         log_enable()
-        log("findFeatureVariables")
-        # first find all code outside "{" ... "}" blocks
-        outerCode = self.findOuterCode(self.code)
-        log("outerCode:", outerCode)
-        self.variables = self.findVariableDeclarations(outerCode)
+        log("-----------------> output:")
+        self.showSource(out)
+        self.source = out
+        
+            
+       
+            
 
-    # find all code lines that aren't inside a { block }
-    def findOuterCode(self, code):
-        outerCode = ""
-        inBlock = False
-        for i, c in enumerate(self.code):
-            if c == '{':
-                inBlock = True
-            elif c == '}':
-                inBlock = False
-            elif not inBlock:
-                outerCode += c
-        return outerCode
+        
+            
 
-    # find variable declarations in a given code block
-    def findVariableDeclarations(self, code):
-        log("findVariableDeclarations---------------------------------------")
-        log("input:", code)
-        variables = []
-        modifiers = ["const", "var", "static", "shared", "client", "server"]
-        regex = self.language.variableDeclarationRegex(modifiers)
-        for match in regex.finditer(code):
-            modifier = match.group(1)
-            name = match.group(2)
-            type = match.group(3)
-            defaultValue = match.group(4)
-            if not (name != None and modifier == None and type == None and defaultValue == None):
-                log("match:", "modifier:", modifier, "name:", name, "type:", type, "defaultValue:", defaultValue)
-                if defaultValue and defaultValue.endswith(";"):
-                    defaultValue = defaultValue[:-1]
-                variables.append(Variable(modifier, name, type, defaultValue))
-        for v in variables:
-            log(v.toString())
-        return variables
-    
-    # print an error message given an index in the code
-    def error(self, index, message):
-        line = self.sourceMap[index]
-        print(f"Error in {self.mdPath} at line {line}: {message}")
+
+        
+
+   
 
 # represents a function declared by a feature
 class Function:
@@ -464,7 +449,7 @@ class Variable:
         }
 
     def toString(self):
-        return f"{self.modifier if self.modifier is not None else ""} {self.name} : {self.type} = {self.defaultValue}"
+        return f"{self.name} : {self.type} = {self.defaultValue}"
 
 #----------------------------------------------------------------------------------------
 # FeatureManager builds the feature graph from the input code, and outputs the target code

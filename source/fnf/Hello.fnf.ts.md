@@ -3,7 +3,7 @@
 
 This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
 
-    feature Hello
+    feature Hello extends Feature;
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
 
@@ -24,15 +24,11 @@ def print (msg: string, indent: number=0) {
 
 Let's define a little structure as well:
 
-    struct Colour {
-        red : number = 0;
-        green: number = 0;
-        blue: number = 0;
-    }
+    struct Colour { red : number = 0; green: number = 0; blue: number = 0; }
 
 And we can also define feature-scoped variables like this:
 
-    my_colour : Colour = new Colour(1, 2, 3);
+    var my_colour : Colour = new Colour(1, 2, 3);
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
@@ -40,5 +36,6 @@ We can run this and get the console live in the code viewer (eventually) using t
 
 And we can also test the result against a known-good value:
 
-    hello() ==> 0
+    hello() ==> "something quite large"
+
 

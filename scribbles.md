@@ -1,5 +1,10 @@
 # scribbles
 
+OK, have to rethink this.
+What if we had a struct called "sourceline" which contains the text, and the source line number.
+We process each line to figure out what it is; and then output the code appropriately.
+
+____________________________________________________________
 Thought experiment: dealing with namespaces.
 
 Even though our code wants to just use "print(xxx)", we clearly can't operate in global symbol space because we're usually going to be sitting on top of systems that define global symbols, so stuff will clash (eg. print in the last attempt).
