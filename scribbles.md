@@ -1,8 +1,8 @@
 # scribbles
 
-OK, have to rethink this.
-What if we had a struct called "sourceline" which contains the text, and the source line number.
-We process each line to figure out what it is; and then output the code appropriately.
+Rewrote using "sourceLine" approach.
+We want to also get the functions properly, not just generate them.
+
 
 ____________________________________________________________
 Thought experiment: dealing with namespaces.

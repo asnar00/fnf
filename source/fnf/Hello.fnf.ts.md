@@ -7,8 +7,8 @@ This is a small program expressed in *feature normal typescript* that prints "he
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
 
-    def hello() : number {
-        print("hey what's up");
+    def hello(name: string) : number {
+        print("hey what's up {name}");
         return 0;
     }
 
@@ -24,7 +24,9 @@ def print (msg: string, indent: number=0) {
 
 Let's define a little structure as well:
 
-    struct Colour { red : number = 0; green: number = 0; blue: number = 0; }
+    struct Colour { red : number = 0; 
+        green: number = 0; blue: number = 0; 
+    }
 
 And we can also define feature-scoped variables like this:
 

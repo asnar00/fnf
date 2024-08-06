@@ -1,39 +1,19 @@
 {
     "name": "Hello",
-    "functions": [
+    "parent": "Feature",
+    "language": "ts",
+    "variables": [
         {
-            "modifier": "def",
-            "name": "hello",
-            "params": [],
-            "returnType": "number",
-            "body": "{\n    print(\"hey what's up\");\n    return 0;\n}"
-        },
-        {
-            "modifier": "def",
-            "name": "print",
-            "params": [
-                {
-                    "modifier": null,
-                    "name": "msg",
-                    "type": "string",
-                    "defaultValue": null
-                },
-                {
-                    "modifier": null,
-                    "name": "indent",
-                    "type": "number",
-                    "defaultValue": "0"
-                }
-            ],
-            "returnType": "void",
-            "body": "{\n    console.log(msg);\n}"
+            "modifier": "var",
+            "name": "my_colour",
+            "type": "Colour",
+            "defaultValue": "new Colour(1, 2, 3)"
         }
     ],
     "structs": [
         {
             "modifier": "struct",
             "name": "Colour",
-            "body": "{\n    red : number = 0;\n    green: number = 0;\n    blue: number = 0;\n}",
             "members": [
                 {
                     "modifier": null,
@@ -56,12 +36,40 @@
             ]
         }
     ],
-    "variables": [
+    "functions": [
         {
-            "modifier": null,
-            "name": "my_colour",
-            "type": "Colour",
-            "defaultValue": "new Colour(1, 2, 3)"
+            "modifier": "def",
+            "name": "hello",
+            "returnType": "number",
+            "parameters": [
+                {
+                    "modifier": null,
+                    "name": "name",
+                    "type": "string",
+                    "defaultValue": null
+                }
+            ],
+            "body": "{\n    print(\"hey what's up {name}\");\n    return 0;\n}"
+        },
+        {
+            "modifier": "def",
+            "name": "print",
+            "returnType": null,
+            "parameters": [
+                {
+                    "modifier": null,
+                    "name": "msg",
+                    "type": "string",
+                    "defaultValue": null
+                },
+                {
+                    "modifier": null,
+                    "name": "indent",
+                    "type": "number",
+                    "defaultValue": null
+                }
+            ],
+            "body": "{\n    console.log(msg);\n}"
         }
     ]
 }

@@ -1,0 +1,14 @@
+27: [struct]  struct Colour { red : number = 0;
+28: []            green: number = 0; blue: number = 0;
+29: []        }
+6: [feature]  feature Hello extends Feature;
+33: [var]     var my_colour : Colour = new Colour(1, 2, 3);
+10: [func]    def hello(name: string) : number {
+11: []            print("hey what's up {name}");
+12: []            return 0;
+13: []        }
+20: [func]    def print (msg: string, indent: number=0) {
+21: []            console.log(msg);
+22: []        }
+37: [test]    hello() ==>
+41: [test]    hello() ==> "something quite large"
