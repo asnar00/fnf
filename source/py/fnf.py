@@ -279,13 +279,19 @@ class Language:
     def struct(self):
         pass
 
-    def output_variable(self, block: SourceBlock) -> SourceBlock:
+    def output_feature(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         pass
 
-    def output_struct(self, featureName: str, block: SourceBlock) -> SourceBlock:
+    def output_variable(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         pass
 
-    def output_function(self, featureName: str, block: SourceBlock) -> SourceBlock:
+    def output_struct(self, feature: Feature, block: SourceBlock) -> SourceBlock:
+        pass
+
+    def output_function(self, feature: Feature, block: SourceBlock) -> SourceBlock:
+        pass
+
+    def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         pass
 
     @staticmethod
@@ -313,8 +319,16 @@ class Typescript(Language):
     def function(self):
         return ["modifier('def' or 'replace' or 'on' or 'after' or 'before')", "name(word)", "'('", "parameters(toEndBracket)", "')'", "optional ':' returnType(word)"]
     
+    # output feature-clause as typescript code:
+    def output_feature(self, feature: Feature, block: SourceBlock) -> SourceBlock:
+        out = SourceBlock([])
+        if len(block.lines) != 1: raise Exception("Expected exactly one line in feature block")
+        line = block.lines[0]
+        out.lines.append(SourceLine(f"export class _{feature.name} extends _{feature.parent}" + " {", line.index, line.tag))
+        return out
+
     # output variable as typescript code: var/const -> static
-    def output_variable(self, block: SourceBlock) -> SourceBlock:
+    def output_variable(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         out = SourceBlock([])
         for line in block.lines:
             code = line.code
@@ -323,12 +337,12 @@ class Typescript(Language):
         return out
 
     # output struct as typescript code: struct->class, auto-constructor
-    def output_struct(self, featureName: str, block: SourceBlock) -> SourceBlock:
+    def output_struct(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         struct = block.entity
         out = SourceBlock([])
         code = block.lines[0].code
         code = code.replace("struct", "export class")
-        code = code.replace(struct.name, f"{featureName}_{struct.name}")
+        code = code.replace(struct.name, f"{feature.name}_{struct.name}")
         out.lines.append(SourceLine(code, block.lines[0].index, block.lines[0].tag))
         for line in block.lines[1:]:
             out.lines.append(SourceLine(line.code, line.index, line.tag))
@@ -341,7 +355,7 @@ class Typescript(Language):
         return out
     
     # output function as typescript code: remove modifier, add _cx: any parameter, modify all function calls
-    def output_function(self, featureName: str, block: SourceBlock) -> SourceBlock:
+    def output_function(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         function = block.entity
         out = SourceBlock([])
         code = block.lines[0].code
@@ -372,6 +386,26 @@ class Typescript(Language):
                 return f'_cx.{func_name}(_cx)'
         
         return re.sub(pattern, replacer, code)
+    
+    # output test function
+    def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
+        out = SourceBlock([])
+        out.lines.append(SourceLine("_test(_cx: any) {", block.lines[0].index, block.lines[0].tag))
+        out.lines.append(SourceLine(f'    _source("{feature.path}");', block.lines[0].index))
+        for line in block.lines:
+            code = line.code
+            outcode = ""
+            parts = code.split("==>")
+            lhs = parts[0].strip()
+            rhs = parts[1].strip() if len(parts) > 1 else ""
+            lhs = self.replace_function_calls(lhs)
+            if (rhs == ""):
+                outcode = f'    _output({lhs}, {line.index});'
+            else:
+                outcode = f'    _assert({lhs}, {rhs}, {line.index});'
+            out.lines.append(SourceLine(outcode, line.index))
+        out.lines.append(SourceLine("}"))
+        return out
     
 #-----------------------------------------------------------------------------------------------
 # FeatureBuilder class: builds a single feature from source
@@ -414,14 +448,18 @@ class FeatureBuilder:
         language : Language = Language.getLanguage(feature.ext)
         outputBlocks = []
         for block in orderedBlocks:
+            if block.tag() == "feature":
+                outputBlocks.append(language.output_feature(feature, block))
             if block.tag() == "var":
-                outputBlocks.append(language.output_variable(block))
+                outputBlocks.append(language.output_variable(feature, block))
             elif block.tag() == "struct":
-                outputBlocks.append(language.output_struct(feature.name, block))
+                outputBlocks.append(language.output_struct(feature, block))
             elif block.tag() == "func":
-                outputBlocks.append(language.output_function(feature.name, block))
+                outputBlocks.append(language.output_function(feature, block))
+            elif block.tag() == "test":
+                outputBlocks.append(language.output_test(feature, block))
+        
         for i, block in enumerate(outputBlocks):
-            log("-------", block.tag(), "-------")
             for line in block.lines:
                 log(line.toString())
         return outputBlocks
@@ -504,7 +542,6 @@ class FeatureBuilder:
                 if block.tag() == tag:
                     orderedBlocks.append(block)
         for i, block in enumerate(orderedBlocks):
-            log("-------", block.tag(), "-------")
             for line in block.lines:
                 log(line.toString())
         return orderedBlocks
@@ -520,10 +557,24 @@ class FeatureBuilder:
                 blocks.append(currentBlock)
             else:
                 currentBlock.lines.append(line)
+        blocks = self.consolidateTestBlocks(blocks)
         for i, block in enumerate(blocks):
-            log("-------", block.tag(), "-------")
             for line in block.lines:
                 log(line.toString())
+        return blocks
+    
+    # consolidate all "test" blocks into a single block
+    def consolidateTestBlocks(self, blocks: List[SourceBlock]) -> List[SourceBlock]:
+        testBlock = SourceBlock([])
+        for block in blocks:
+            if block.tag() == "test":
+                testBlock.lines += block.lines
+        # remove the tag from all testBlock lines except the first
+        for line in testBlock.lines[1:]: line.tag = ""
+        # now remove all "test" tagged blocks from blocks:
+        blocks = [block for block in blocks if block.tag() != "test"]
+        # add the test block to the end
+        blocks.append(testBlock)
         return blocks
     
     # tag source code with function, struct, variable, etc

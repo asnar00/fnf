@@ -11,4 +11,4 @@
 21: []            console.log(msg);
 22: []        }
 37: [test]    hello() ==>
-41: [test]    hello() ==> "something quite large"
+41: []        hello() ==> "something quite large"
