@@ -342,7 +342,7 @@ class Typescript(Language):
         out = SourceBlock([])
         code = block.lines[0].code
         code = code.replace("struct", "export class")
-        code = code.replace(struct.name, f"{feature.name}_{struct.name}")
+        code = code.replace(struct.name, f"{struct.name}")
         out.lines.append(SourceLine(code, block.lines[0].index, block.lines[0].tag))
         for line in block.lines[1:]:
             out.lines.append(SourceLine(line.code, line.index, line.tag))
@@ -437,9 +437,10 @@ class FeatureBuilder:
         taggedLines = self.tagSource(sourceLines)
         taggedBlocks = self.separateBlocks(taggedLines)
         orderedBlocks = self.reorderBlocks(taggedBlocks)
-        self.saveBlocks(feature, orderedBlocks)
+        self.saveBlocks(feature, orderedBlocks, self.inBlockPath(feature))
         self.parseBlocks(feature, orderedBlocks)
         outputBlocks = self.outputBlocks(feature, orderedBlocks)
+        self.saveBlocks(feature, outputBlocks, self.outBlockPath(feature))
 
     # output blocks to target language source code
     def outputBlocks(self, feature, orderedBlocks):
@@ -451,27 +452,33 @@ class FeatureBuilder:
             if block.tag() == "feature":
                 outputBlocks.append(language.output_feature(feature, block))
             if block.tag() == "var":
-                outputBlocks.append(language.output_variable(feature, block))
+                outputBlocks.append(self.indentBlock(language.output_variable(feature, block)))
             elif block.tag() == "struct":
                 outputBlocks.append(language.output_struct(feature, block))
             elif block.tag() == "func":
-                outputBlocks.append(language.output_function(feature, block))
+                outputBlocks.append(self.indentBlock(language.output_function(feature, block)))
             elif block.tag() == "test":
-                outputBlocks.append(language.output_test(feature, block))
+                outputBlocks.append(self.indentBlock(language.output_test(feature, block)))
+        outputBlocks.append(SourceBlock([SourceLine("}", 0)]))
         
         for i, block in enumerate(outputBlocks):
             for line in block.lines:
                 log(line.toString())
         return outputBlocks
     
+    # indent a block by 4 spaces
+    def indentBlock(self, block):
+        for line in block.lines:
+            line.code = "    " + line.code
+        return block
+
     # save blocks to text file
-    def saveBlocks(self, feature, orderedBlocks):
-        savePath = feature.path.replace(".fnf.ts.md", ".txt").replace("source/fnf/", "/build/blocks/")
+    def saveBlocks(self, feature, blocks, savePath):
         log("saveBlocks: " + savePath)
         # make sure folder exists:
         os.makedirs(os.path.dirname(savePath), exist_ok=True)
         with open(savePath, "w") as f:
-            for block in orderedBlocks:
+            for block in blocks:
                 for line in block.lines:
                     f.write(line.toString())
                     f.write("\n")
@@ -634,7 +641,16 @@ class FeatureBuilder:
         
     # get json path for feature
     def jsonPath(self, feature) -> str:
-        return feature.path.replace(".fnf.ts.md", ".json").replace("source/fnf/", "/build/json/")
+        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.json").replace("source/fnf/", "/build/fnf/")
+    
+    # get path of "incoming blocks" file
+    def inBlockPath(self, feature) -> str:
+        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.in.blocks").replace("source/fnf/", "/build/fnf/")
+    
+    # get path of "outgoing blocks" file
+    def outBlockPath(self, feature) -> str:
+        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.out.blocks").replace("source/fnf/", "/build/fnf/")
+    
 
 #-----------------------------------------------------------------------------------------------
 # FeatureManager class: manages all features
