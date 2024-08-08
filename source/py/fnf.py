@@ -122,6 +122,14 @@ class Context:
         self.features = [Feature().fromDict(x) for x in dict["features"]]
         self.functions = {k: Function().fromDict(v) for k, v in dict["functions"].items()}
 
+#-------------------------------------------------------------------------------------------
+# utility stuff
+
+def writeFile(outPath, text):
+    os.makedirs(os.path.dirname(outPath), exist_ok=True)
+    with open(outPath, "w") as f:
+        f.write(text)
+
 #-----------------------------------------------------------------------------------------------
 # SourceLine holds a line of source code, a tag, and the source line number
 
@@ -144,6 +152,10 @@ class SourceLine:
         tag = s[iBracket+1:iBracketEnd]
         code = s[iBracketEnd+1:]
         return SourceLine(code, index, tag)
+    
+    def indent(self):
+        self.code = "    " + self.code
+        return self
 
 class SourceBlock:
     def __init__(self, lines: List[SourceLine]):
@@ -187,7 +199,15 @@ class SourceBlock:
                 else:
                     blocks[-1].lines.append(sourceLine)
         return blocks
-
+    
+    @staticmethod
+    # convert to a text file, code only
+    def blocksToText(blocks):
+        out = ""
+        for block in blocks:
+            for line in block.lines:
+                out += line.code + "\n"
+        return out
     
 #-----------------------------------------------------------------------------------------------
 # logging: turn on and offable
@@ -369,6 +389,12 @@ class Language:
     def output_classDeclEnd(self) -> SourceLine:
         pass
 
+    def output_contextPreamble(self, name) -> SourceBlock:
+        pass
+
+    def output_testAllFunction(self, features: List[Feature]) -> SourceBlock:
+        pass
+
     @staticmethod
     def getLanguage(ext):
         for subclass in Language.__subclasses__():
@@ -402,7 +428,8 @@ class Typescript(Language):
         out = SourceBlock([])
         if len(block.lines) != 1: raise Exception("Expected exactly one line in feature block")
         line = block.lines[0]
-        out.lines.append(SourceLine(f"export class _{feature.name} extends _{feature.parent}" + " {", line.index, line.tag))
+        extends = f"extends _{feature.parent}" if feature.parent != "Feature" else ""
+        out.lines.append(SourceLine(f"export class _{feature.name}{extends}" + " {", line.index, line.tag))
         return out
 
     # output variable as typescript code: var/const -> static
@@ -424,11 +451,17 @@ class Typescript(Language):
         out.lines.append(SourceLine(code, block.lines[0].index, block.lines[0].tag))
         for line in block.lines[1:]:
             out.lines.append(SourceLine(line.code, line.index, line.tag))
+        # remove last "}" from out.lines[-1]
+        lastLine = out.lines[-1].code
+        # find last index of "}" in lastLine:
+        i = lastLine.rfind("}")
+        out.lines[-1].code = lastLine[:i]
         constructorParams = [var.toString() for var in struct.members]
         constructor = "constructor(" + ", ".join(constructorParams) + ") {"
-        out.lines.append(SourceLine(constructor, block.lines[0].index))
+        out.lines.append(SourceLine(constructor, block.lines[0].index).indent())
         for member in struct.members:
-            out.lines.append(SourceLine(f"    this.{member.name} = {member.name};", block.lines[0].index))
+            out.lines.append(SourceLine(f"    this.{member.name} = {member.name};", block.lines[0].index).indent())
+        out.lines.append(SourceLine("}", block.lines[0].index).indent())
         out.lines.append(SourceLine("}", block.lines[0].index))
         return out
     
@@ -468,7 +501,7 @@ class Typescript(Language):
     # output test function
     def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         out = SourceBlock([])
-        out.lines.append(SourceLine("_test(_cx: any) {", 0, block.lines[0].tag))
+        out.lines.append(SourceLine("static _test(_cx: any) {", 0, block.lines[0].tag))
         out.lines.append(SourceLine(f'    _source("{feature.path}");', 0))
         for line in block.lines:
             code = line.code
@@ -495,7 +528,7 @@ class Typescript(Language):
             block.lines.append(SourceLine(f"{newFunc.name}({params}){returnType} {{", 0))
             args = ", ".join([var.name for var in newFunc.parameters])
             args = "_cx" + (", " if args != "" else "") + args
-            block.lines.append(SourceLine(f"    return {feature.name}.{newFunc.name}({args});", 0))
+            block.lines.append(SourceLine(f"    return _{feature.name}.{newFunc.name}({args});", 0))
             block.lines.append(SourceLine("}", 0))
             return block
         
@@ -506,8 +539,31 @@ class Typescript(Language):
     # outputs a class declaration end
     def output_classDeclEnd(self) -> SourceLine:
         return SourceLine("}")
-
     
+    # outputs the preamble lines for a context
+    def output_contextPreamble(self, name) -> SourceBlock:
+        out = SourceBlock([])
+        out.lines.append(SourceLine(f"// ᕦ(ツ)ᕤ", 0, "preamble"))
+        out.lines.append(SourceLine(f"// Context {name}"))
+        out.lines.append(SourceLine(f"// generated by fnf.py"))
+        out.lines.append(SourceLine(f""))
+        out.lines.append(SourceLine(f"var s_sourcePath: string = '';"))
+        out.lines.append(SourceLine("function _source(path: string) { s_sourcePath = path; }"))
+        out.lines.append(SourceLine("function _output(value: any, line: number) { console.log(`${s_sourcePath}:${line} ==> ${value}`); }"))
+        out.lines.append(SourceLine("function _assert(lhs: any, rhs: any, line: number) { if (lhs != rhs) console.log(`${s_sourcePath}:${line} ==> ${lhs} != ${rhs}`); }"))
+        out.lines.append(SourceLine(""))
+        out.lines.append
+        return out
+    
+    # outputs test-all function
+    def output_testAllFunction(self, features: List[Feature]) -> SourceBlock:
+        out = SourceBlock([])
+        out.lines.append(SourceLine("_testAll(_cx: any) {", 0, "test"))
+        for feature in features:
+            out.lines.append(SourceLine(f"    _{feature.name}._test(_cx);", 0))
+        out.lines.append(SourceLine("}", 0))
+        return out
+
 #-----------------------------------------------------------------------------------------------
 # FeatureBuilder class: builds a single feature from source
 
@@ -748,9 +804,11 @@ class ContextBuilder:
         self.name = name
         self.features = features
         
-    def build(self) -> List[SourceBlock]:
+    def makeBlocks(self) -> List[SourceBlock]:
         outBlocks = []
         language = Language.getLanguage(self.features[0].ext)
+        # add the language preamble
+        outBlocks.append(language.output_contextPreamble(self.name))
         # add all the feature contexts
         for feature in self.features:
             outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} {feature.path}", 0, "source")]))
@@ -775,6 +833,7 @@ class ContextBuilder:
         outBlocks.append(SourceBlock([cDecl]))
         for name, block in functions.items():
             outBlocks.append(block.indent())
+        outBlocks.append(language.output_testAllFunction(self.features).indent())
         outBlocks.append(SourceBlock([language.output_classDeclEnd()]))
         log("ContextBuilder.build")
         for block in outBlocks:
@@ -786,14 +845,17 @@ class ContextBuilder:
 # SourceMap : maps line number to (source, line) based on context
 
 class SourceMap:
-    def __init__(self, sourceBlocks, comment):
+    def __init__(self, sourceBlocks, filename, comment):
         source = ""
         self.map = []
         sourceLines = [].join([block.lines for block in sourceBlocks])
         for i, line in enumerate(sourceLines):
             if line.tag == "source":
                 source = line.code.replace(comment + " ", "")
-            self.map.push((source, line.index))
+            if line.index != 0:
+                self.map.push((source, line.index))
+            else:
+                self.map.push((filename, i+1))
 
     def get(self, lineIndex): # 1-based
         if lineIndex > len(self.map): return 0
@@ -822,8 +884,13 @@ class FeatureManager:
         log_enable()
         log("buildContext: " + name)
         builder = ContextBuilder(name, features)
-        blocks = builder.build()
+        blocks = builder.makeBlocks()
         SourceBlock.saveBlocks(blocks, f"build/cx/Context_{name}.ts.out.blocks")
+        code = SourceBlock.blocksToText(blocks)
+        ext = features[0].ext
+        outPath = "build/" + ext + "/Context_" + name + "." + ext
+        writeFile(outPath, code)
+        
 
     # build feature from given file
     def buildFeature(self, file):
