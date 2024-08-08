@@ -1,8 +1,55 @@
 # scribbles
 
-Rewrote using "sourceLine" approach.
-We want to also get the functions properly, not just generate them.
+I'm wondering now if there's an even easier way to build contexts - just copy the fucking code, rather than calling into it. Just much more efficient than the alternative.
 
+class Context_all {
+    hello(...) {
+        this.print(...) // @Hello
+    }
+    print(...) {
+        console.log();  // @Hello
+    }
+
+That's an optimisation that we can do in the future. For the moment let's just get it fucking working, right?
+
+OK so the next step is to consolidate all those blocks and output them to a single file.
+__________________
+ContextBuilder: 
+
+so basically we just define functions
+
+OKAY. So we have Feature => Functions, Struct, Vars
+
+Next, we have to construct a Context = List of features, plus functions defined.
+Given a function f defined by feature F, and an existing cx definition cf:
+
+    cf =:
+        def => F.f, error if cf exists already
+        replace => F.f, error if cf doesn't exist already
+        on => par(F.f, cf), error if cf doesn't exist already
+        after => seq(F.f, cf), error if cf doesn't exist already
+        before => seq(cf, F.f), error if cf doesn't exist already
+    
+and cf / F.f are just strings.
+
+In general
+
+    cf := ""
+
+The only three modifiers we actually need are on/after/before.
+If we could make the before/after cases symmetrical, then we could do par(a, b) and seq(a, b)
+
+before => if we return something, then it's an early out, otherwise we continue
+after  => we need the result of the previous computation as a parameter.
+replace => we need to be able to call the previous cf as a function.
+
+Thing is: instead of storing it as a function, we could just store it as blocks already,
+and let the language do its thing?
+
+Well, let's just build the first context.
+
+
+    
 
 ____________________________________________________________
 Thought experiment: dealing with namespaces.

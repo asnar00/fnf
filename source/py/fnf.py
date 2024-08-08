@@ -87,6 +87,9 @@ class Feature:
         self.variables: List[Variable] = []
         self.structs: List[Struct] = []
         self.functions: List[Function] = []
+        self.inBlocks: List[SourceBlock] = []
+        self.outBlocks: List[SourceBlock] = []
+
     def toDict(self) -> dict:
         return {
             "name": self.name,
@@ -104,6 +107,19 @@ class Feature:
         self.structs = [Struct().fromDict(x) for x in dict["structs"]]
         self.functions = [Function().fromDict(x) for x in dict["functions"]]
 
+class Context:
+    def __init__(self):
+        self.features = []
+        self.functions = {}
+    def toDict(self) -> dict:
+        return {
+            "features": [x.toDict() for x in self.features],
+            "functions": {k: v.toDict() for k, v in self.functions.items()}
+        }
+    def fromDict(self, dict: dict):
+        self.features = [Feature().fromDict(x) for x in dict["features"]]
+        self.functions = {k: Function().fromDict(v) for k, v in dict["functions"].items()}
+
 #-----------------------------------------------------------------------------------------------
 # SourceLine holds a line of source code, a tag, and the source line number
 
@@ -118,6 +134,15 @@ class SourceLine:
             return s + " " * (n - len(s))
         return pad(f"{self.index}: [{self.tag}]", 14) + self.code
 
+    def fromString(self, s):
+        iColon = s.find(":")
+        iBracket = s.find("[", iColon)
+        iBracketEnd = s.find("]", iBracket)
+        index = int(s[:iColon])
+        tag = s[iBracket+1:iBracketEnd]
+        code = s[iBracketEnd+1:]
+        return SourceLine(code, index, tag)
+
 class SourceBlock:
     def __init__(self, lines: List[SourceLine]):
         self.lines = lines
@@ -125,6 +150,42 @@ class SourceBlock:
 
     def tag(self):
         return self.lines[0].tag
+    
+    # indent a block by 4 spaces
+    def indent(self):
+        for line in self.lines:
+            line.code = "    " + line.code
+        return self
+    
+    @staticmethod
+    # save blocks to text file
+    def saveBlocks(blocks, savePath):
+        log("saveBlocks: " + savePath)
+        # make sure folder exists:
+        os.makedirs(os.path.dirname(savePath), exist_ok=True)
+        with open(savePath, "w") as f:
+            for block in blocks:
+                for line in block.lines:
+                    f.write(line.toString())
+                    f.write("\n")
+
+    @staticmethod
+    # load blocks from text file
+    def loadBlocks(loadPath):
+        log("loadBlocks: " + loadPath)
+        blocks = []
+        if not os.path.exists(loadPath): return blocks
+        with open(loadPath, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                sourceLine = SourceLine().fromString(line)
+                if (sourceLine.tag != ""):
+                    block = SourceBlock([sourceLine])
+                    blocks.append(block)
+                else:
+                    blocks[-1].lines.append(sourceLine)
+        return blocks
+
     
 #-----------------------------------------------------------------------------------------------
 # logging: turn on and offable
@@ -294,6 +355,15 @@ class Language:
     def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         pass
 
+    def extend_function(self, existing: SourceBlock, new: Function, feature: Feature) -> SourceBlock:
+        pass
+
+    def output_classDecl(self, name) -> SourceLine:
+        pass
+
+    def output_classDeclEnd(self) -> SourceLine:
+        pass
+
     @staticmethod
     def getLanguage(ext):
         for subclass in Language.__subclasses__():
@@ -361,7 +431,7 @@ class Typescript(Language):
         code = block.lines[0].code
         # replace the modifier with nothing
         modifiers = ["def", "replace", "on", "before", "after"]
-        for m in modifiers: code = code.replace(m + " ", "")
+        for m in modifiers: code = code.replace(m + " ", "static ")
         # add a new cx: any parameter to the start of the param-list
         cxParam = "_cx: any"
         if len(function.parameters) > 0: cxParam += ", "
@@ -390,8 +460,8 @@ class Typescript(Language):
     # output test function
     def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
         out = SourceBlock([])
-        out.lines.append(SourceLine("_test(_cx: any) {", block.lines[0].index, block.lines[0].tag))
-        out.lines.append(SourceLine(f'    _source("{feature.path}");', block.lines[0].index))
+        out.lines.append(SourceLine("_test(_cx: any) {", 0, block.lines[0].tag))
+        out.lines.append(SourceLine(f'    _source("{feature.path}");', 0))
         for line in block.lines:
             code = line.code
             outcode = ""
@@ -406,6 +476,29 @@ class Typescript(Language):
             out.lines.append(SourceLine(outcode, line.index))
         out.lines.append(SourceLine("}"))
         return out
+    
+    # builds a composite function from an existing function, a new function, and a modifier
+    def extend_function(self, existing: SourceBlock|None, newFunc: Function, feature: Feature) -> SourceBlock:
+        if existing is None or newFunc.modifier == "replace":
+            block = SourceBlock([])
+            params = ", ".join([var.toString() for var in newFunc.parameters])
+            params = "_cx: any" + (", " if params != "" else "") + params
+            returnType = "" if newFunc.returnType == None else f" : {newFunc.returnType}"
+            block.lines.append(SourceLine(f"{newFunc.name}({params}){returnType} {{", 0))
+            args = ", ".join([var.name for var in newFunc.parameters])
+            args = "_cx" + (", " if args != "" else "") + args
+            block.lines.append(SourceLine(f"    return {feature.name}.{newFunc.name}({args});", 0))
+            block.lines.append(SourceLine("}", 0))
+            return block
+        
+    # outputs a class declaration
+    def output_classDecl(self, name) -> SourceLine:
+        return SourceLine(f"export class {name} {{")
+    
+    # outputs a class declaration end
+    def output_classDeclEnd(self) -> SourceLine:
+        return SourceLine("}")
+
     
 #-----------------------------------------------------------------------------------------------
 # FeatureBuilder class: builds a single feature from source
@@ -423,9 +516,9 @@ class FeatureBuilder:
         sourceDate = os.path.getmtime(__file__)
         if sourceDate > jsonDate or jsonDate < fileDate:
             self.buildFeatureFromSource(feature)
-            self.saveFeature(feature, jsonPath)
+            self.saveFeature(feature)
         else:
-            self.loadFeature(feature, jsonPath)
+            self.loadFeature(feature)
 
     # build feature from source
     def buildFeatureFromSource(self, feature):
@@ -437,10 +530,10 @@ class FeatureBuilder:
         taggedLines = self.tagSource(sourceLines)
         taggedBlocks = self.separateBlocks(taggedLines)
         orderedBlocks = self.reorderBlocks(taggedBlocks)
-        self.saveBlocks(feature, orderedBlocks, self.inBlockPath(feature))
+        feature.inBlocks = orderedBlocks
         self.parseBlocks(feature, orderedBlocks)
         outputBlocks = self.outputBlocks(feature, orderedBlocks)
-        self.saveBlocks(feature, outputBlocks, self.outBlockPath(feature))
+        feature.outBlocks = outputBlocks
 
     # output blocks to target language source code
     def outputBlocks(self, feature, orderedBlocks):
@@ -452,36 +545,19 @@ class FeatureBuilder:
             if block.tag() == "feature":
                 outputBlocks.append(language.output_feature(feature, block))
             if block.tag() == "var":
-                outputBlocks.append(self.indentBlock(language.output_variable(feature, block)))
+                outputBlocks.append(language.output_variable(feature, block).indent())
             elif block.tag() == "struct":
                 outputBlocks.append(language.output_struct(feature, block))
             elif block.tag() == "func":
-                outputBlocks.append(self.indentBlock(language.output_function(feature, block)))
+                outputBlocks.append(language.output_function(feature, block).indent())
             elif block.tag() == "test":
-                outputBlocks.append(self.indentBlock(language.output_test(feature, block)))
+                outputBlocks.append(language.output_test(feature, block).indent())
         outputBlocks.append(SourceBlock([SourceLine("}", 0)]))
         
         for i, block in enumerate(outputBlocks):
             for line in block.lines:
                 log(line.toString())
         return outputBlocks
-    
-    # indent a block by 4 spaces
-    def indentBlock(self, block):
-        for line in block.lines:
-            line.code = "    " + line.code
-        return block
-
-    # save blocks to text file
-    def saveBlocks(self, feature, blocks, savePath):
-        log("saveBlocks: " + savePath)
-        # make sure folder exists:
-        os.makedirs(os.path.dirname(savePath), exist_ok=True)
-        with open(savePath, "w") as f:
-            for block in blocks:
-                for line in block.lines:
-                    f.write(line.toString())
-                    f.write("\n")
 
     # parse blocks into variables, structs, functions, etc
     def parseBlocks(self, feature, orderedBlocks):
@@ -628,16 +704,20 @@ class FeatureBuilder:
         return source
         
     # save feature to (path)
-    def saveFeature(self, feature, path):
-        log("saveFeature: " + path)
-        with open(path, "w") as f:
+    def saveFeature(self, feature):
+        log("saveFeature: " + feature.name)
+        with open(self.jsonPath(feature), "w") as f:
             json.dump(feature.toDict(), f, indent=4)
+        SourceBlock.saveBlocks(feature.inBlocks, self.inBlockPath(feature))
+        SourceBlock.saveBlocks(feature.outBlocks, self.outBlockPath(feature))
 
     # load feature from (path)
-    def loadFeature(self, feature, path):
-        log("loadFeature: " + path)
-        with open(path, "r") as f:
+    def loadFeature(self, feature):
+        log("loadFeature: " + feature.name)
+        with open(self.jsonPath(feature), "r") as f:
             feature.fromDict(json.load(f))     
+        feature.inBlocks = SourceBlock.loadBlocks(self.inBlockPath(feature))
+        feature.outBlocks = SourceBlock.loadBlocks(self.outBlockPath(feature))
         
     # get json path for feature
     def jsonPath(self, feature) -> str:
@@ -653,6 +733,47 @@ class FeatureBuilder:
     
 
 #-----------------------------------------------------------------------------------------------
+# ContextBuilder class: builds a context from a list of features
+
+class ContextBuilder:
+    def __init__(self, name, features: List[Feature]):
+        self.name = name
+        self.features = features
+        
+    def build(self) -> List[SourceBlock]:
+        outBlocks = []
+        language = Language.getLanguage(self.features[0].ext)
+        # add all the feature contexts
+        for feature in self.features:
+            outBlocks.append(SourceBlock([SourceLine(f"// ---- {feature.path} ----", 0, "source")]))
+            outBlocks += feature.outBlocks
+        outBlocks.append(SourceBlock([SourceLine(f"// ------------------- Context {self.name} -----------------", 0, "source")]))
+        # build a list of functions
+        functions = {}      # map name -> SourceBlock
+        for feature in self.features:
+            for func in feature.functions:
+                if func.modifier == "def":
+                    if func.name in functions:
+                        raise Exception(f"Function {func.name} already defined")
+                else:
+                    if not func.name in functions:
+                        raise Exception(f"Function {func.name} not defined")
+                existing: SourceBlock = functions.get(func.name, None)
+                newBlock = language.extend_function(existing, func, feature)
+                functions[func.name] = newBlock
+        cDecl = language.output_classDecl("Context_" + self.name)
+        cDecl.tag = "context"
+        outBlocks.append(SourceBlock([cDecl]))
+        for name, block in functions.items():
+            outBlocks.append(block.indent())
+        outBlocks.append(SourceBlock([language.output_classDeclEnd()]))
+        log("ContextBuilder.build")
+        for block in outBlocks:
+            for line in block.lines:
+                log(line.toString())
+        return outBlocks
+    
+#-----------------------------------------------------------------------------------------------
 # FeatureManager class: manages all features
 
 class FeatureManager:
@@ -664,11 +785,19 @@ class FeatureManager:
         self.features = {}
         
     # build or maintain the feature graph, minimising work
-    def buildFeatureGraph(self):
-        log("buildFeatureGraph")
+    def buildFeatures(self):
+        log("buildFeatures")
         filesFound = self.scanFolder()
         for file in filesFound:
             self.buildFeature(file)
+
+    # build context from list, name
+    def buildContext(self, name: str, features: List[Feature]):
+        log_enable()
+        log("buildContext: " + name)
+        builder = ContextBuilder(name, features)
+        blocks = builder.build()
+        SourceBlock.saveBlocks(blocks, f"build/cx/Context_{name}.ts.out.blocks")
 
     # build feature from given file
     def buildFeature(self, file):
@@ -706,7 +835,8 @@ class FeatureManager:
 def main():
     print("ᕦ(ツ)ᕤ fnf.py")
     fm = FeatureManager()
-    fm.buildFeatureGraph()
+    fm.buildFeatures()
+    fm.buildContext("all", list(fm.features.values()))
 
 if __name__ == "__main__":
     main()

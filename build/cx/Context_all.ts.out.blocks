@@ -1,3 +1,4 @@
+0: [source]   // ---- /Users/asnaroo/Desktop/experiments/fnf/source/fnf/Hello.fnf.ts.md ----
 27: [struct]  export class Colour { red : number = 0;
 28: []            green: number = 0; blue: number = 0;
 29: []        }
@@ -19,5 +20,14 @@
 0: []                 _source("/Users/asnaroo/Desktop/experiments/fnf/source/fnf/Hello.fnf.ts.md");
 37: []                _output(_cx.hello(_cx), 37);
 41: []                _assert(_cx.hello(_cx), "something quite large", 41);
+0: []             }
+0: []         }
+0: [source]   // ------------------- Context all -----------------
+0: [context]  export class Context_all {
+0: []             hello(_cx: any, name: string) : number {
+0: []                 return Hello.hello(_cx, name);
+0: []             }
+0: []             print(_cx: any, msg: string, indent: number) {
+0: []                 return Hello.print(_cx, msg, indent);
 0: []             }
 0: []         }
