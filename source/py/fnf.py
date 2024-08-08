@@ -8,7 +8,7 @@ import os
 import re
 import json
 
-#-----------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------
 # classes that represent the program: super lightweight, just serialisation and store
 
 class Variable:
@@ -111,6 +111,8 @@ class Context:
     def __init__(self):
         self.features = []
         self.functions = {}
+        self.sourceBlocks = []
+
     def toDict(self) -> dict:
         return {
             "features": [x.toDict() for x in self.features],
@@ -331,6 +333,9 @@ class Language:
     def __init__(self):
         self.ext = ""
 
+    def comment(self):
+        pass
+
     def indent(self):
         pass
 
@@ -376,6 +381,9 @@ class Language:
 class Typescript(Language):
     def __init__(self):
         self.ext = "ts"
+
+    def comment(self):
+        return "//"
 
     def indent(self):
         return "{"
@@ -745,9 +753,10 @@ class ContextBuilder:
         language = Language.getLanguage(self.features[0].ext)
         # add all the feature contexts
         for feature in self.features:
-            outBlocks.append(SourceBlock([SourceLine(f"// ---- {feature.path} ----", 0, "source")]))
+            outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} {feature.path}", 0, "source")]))
             outBlocks += feature.outBlocks
-        outBlocks.append(SourceBlock([SourceLine(f"// ------------------- Context {self.name} -----------------", 0, "source")]))
+        padding = 80 - len(self.name) - 12
+        outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} Context {self.name}", 0, "source")]))
         # build a list of functions
         functions = {}      # map name -> SourceBlock
         for feature in self.features:
@@ -772,7 +781,24 @@ class ContextBuilder:
             for line in block.lines:
                 log(line.toString())
         return outBlocks
-    
+
+#-----------------------------------------------------------------------------------------------
+# SourceMap : maps line number to (source, line) based on context
+
+class SourceMap:
+    def __init__(self, sourceBlocks, comment):
+        source = ""
+        self.map = []
+        sourceLines = [].join([block.lines for block in sourceBlocks])
+        for i, line in enumerate(sourceLines):
+            if line.tag == "source":
+                source = line.code.replace(comment + " ", "")
+            self.map.push((source, line.index))
+
+    def get(self, lineIndex): # 1-based
+        if lineIndex > len(self.map): return 0
+        return self.map[lineIndex-1]    
+
 #-----------------------------------------------------------------------------------------------
 # FeatureManager class: manages all features
 
