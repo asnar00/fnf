@@ -809,12 +809,14 @@ class ContextBuilder:
         language = Language.getLanguage(self.features[0].ext)
         # add the language preamble
         outBlocks.append(language.output_contextPreamble(self.name))
+
         # add all the feature contexts
         for feature in self.features:
             outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} {feature.path}", 0, "source")]))
             outBlocks += feature.outBlocks
         padding = 80 - len(self.name) - 12
         outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} Context {self.name}", 0, "source")]))
+        
         # build a list of functions
         functions = {}      # map name -> SourceBlock
         for feature in self.features:
@@ -839,6 +841,15 @@ class ContextBuilder:
         for block in outBlocks:
             for line in block.lines:
                 log(line.toString())
+        self.saveContext(outBlocks)
+
+    def saveContext(self, outBlocks):
+        SourceBlock.saveBlocks(outBlocks, f"build/cx/Context_{self.name}.ts.out.blocks")
+        code = SourceBlock.blocksToText(outBlocks)
+        ext = self.features[0].ext
+        outPath = "build/" + ext + "/Context_" + self.name + "." + ext
+        writeFile(outPath, code)
+        
         return outBlocks
 
 #-----------------------------------------------------------------------------------------------
@@ -885,11 +896,6 @@ class FeatureManager:
         log("buildContext: " + name)
         builder = ContextBuilder(name, features)
         blocks = builder.makeBlocks()
-        SourceBlock.saveBlocks(blocks, f"build/cx/Context_{name}.ts.out.blocks")
-        code = SourceBlock.blocksToText(blocks)
-        ext = features[0].ext
-        outPath = "build/" + ext + "/Context_" + name + "." + ext
-        writeFile(outPath, code)
         
 
     # build feature from given file

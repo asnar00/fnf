@@ -1,5 +1,84 @@
 # scribbles
 
+Target workflow:
+- edit markdown in vscode
+- auto-save, rebuild/re-run
+- console lines map to line in code
+- look for wysiwyg editors that are open source
+- customise to add feedback in editor
+
+that's probably the best way to do it.
+
+ok so next target: automatically rebuild/rerun whenever code changes.
+=> let's do it.
+
+---------------------------------------------------------------------
+
+before we head into mentalness with logs, I think we should rethink the whole idea of logs.
+
+There are two kinds of logs! There are those that reflect or capture runtime data, and those that communicate.
+
+    print("hello world")
+
+is not the same as 
+
+    console.log("hello world")
+
+it does not make sense for us to do the hello example using console.log or log or anything resembling logging. Instead, it will output to a stream of values.
+
+so we will do this:
+
+    feature Hello {
+        var out: string
+        on hello(name: string) {
+            out << `hello, ${name}!`;
+        }
+    }
+
+OK, and this is lovely, because we just have to allow ourselves to leave the { open.
+
+So this is super nice, because it gives us a sequence. And it's the syntax we need.
+
+OK so this is the way we make this compiler modular; we go from one form to the next.
+
+We look into this once we get code actually running and editing from typora.
+
+
+----------------------------------------------------
+project dojo
+
+cleared of all gubbins, the front room is a *dojo*. You can use it for lots of activities, including physical ones. You want the space to be completely clutter free, so you can explore it using AR. Just a place to sit, and power / cabling taken care of, so you can work unencumbered.
+
+To get to this point, we just need to clear out the right-hand-side unit. That can be done super quickly and cheaply. Then we can get going.
+
+dojo is a private members club - members curate "sessions" here, eg.
+
+- morning work session
+- teatime discussions
+- evening demos
+- conversations
+- parties
+- gallery
+- jam session
+- gig
+
+So just keep the space totally open, and provide power and data all round the edge.
+
+the back room is a store, focused-studio-admin workspace, backstage, green room, whatever. it's where we coordinate and enable the activities taking place in the dojo.
+
+need the first collaborator. => carolina vallejo.
+
+
+
+------------------------------------------------------
+
+OK we're now generating the code correctly.
+The next step is to build it: -> tsconfig, etcetc, all part of the Language module.
+
+We need to think about a deno target rather than a ts target, that was one of the points of this. Let's think about that after a bit of ... fun.
+
+---------------------------------------
+
 I'm wondering now if there's an even easier way to build contexts - just copy the fucking code, rather than calling into it. Just much more efficient than the alternative.
 
 class Context_all {
