@@ -33,7 +33,7 @@
 0: []             }
 0: []         }
 0: [source]   // Context all
-0: [context]  export class Context_all {
+0: [context]  export class _Context_all {
 0: []             hello(_cx: any, name: string) : number {
 0: []                 return _Hello.hello(_cx, name);
 0: []             }

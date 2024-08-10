@@ -33,7 +33,7 @@ export class _Hello {
     }
 }
 // Context all
-export class Context_all {
+export class _Context_all {
     hello(_cx: any, name: string) : number {
         return _Hello.hello(_cx, name);
     }

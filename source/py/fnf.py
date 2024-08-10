@@ -830,7 +830,7 @@ class ContextBuilder:
                 existing: SourceBlock = functions.get(func.name, None)
                 newBlock = language.extend_function(existing, func, feature)
                 functions[func.name] = newBlock
-        cDecl = language.output_classDecl("Context_" + self.name)
+        cDecl = language.output_classDecl("_Context_" + self.name)
         cDecl.tag = "context"
         outBlocks.append(SourceBlock([cDecl]))
         for name, block in functions.items():
@@ -897,7 +897,6 @@ class FeatureManager:
         builder = ContextBuilder(name, features)
         blocks = builder.makeBlocks()
         
-
     # build feature from given file
     def buildFeature(self, file):
         log("buildFeature: " + file)
@@ -917,6 +916,7 @@ class FeatureManager:
 
     # find all files in the source folder, in order of creation-date
     def scanFolder(self) -> List[str]:
+        log_enable()
         log("scanFolder")
         # scan the directory for .fnf.md files
         filesFound = []
