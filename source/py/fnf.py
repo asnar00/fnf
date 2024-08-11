@@ -1,941 +1,377 @@
 # ᕦ(ツ)ᕤ
 # fnf.py
 # author: asnaroo
-# reads .md files and builds features
+# processes .fnf.*.md files => .* files
+# initially supporting ts, py, cpp
 
-from typing import List
 import os
 import re
-import json
+from typing import List
+from typing import Tuple
 
-#-------------------------------------------------------------------------------------------
-# classes that represent the program: super lightweight, just serialisation and store
+#---------------------------------------------------------------------------------
+# switch-on-and-offable logging
 
-class Variable:
-    def __init__(self, modifier= None, name=None, type=None, defaultValue=None):
-        self.modifier = modifier
-        self.name = name
-        self.type = type
-        self.defaultValue = defaultValue
-    def toString(self):
-        out = ""
-        if self.modifier != None: out += self.modifier + " "
-        out += self.name
-        if self.type != None: out += ": " + self.type
-        if self.defaultValue != None: out += " = " + self.defaultValue
-        return out
-    def toDict(self) -> dict:
-        return {
-            "modifier": self.modifier,
-            "name": self.name,
-            "type": self.type,
-            "defaultValue": self.defaultValue
-        }
-    def fromDict(self, dict: dict):
-        self.modifier = dict["modifier"]
-        self.name = dict["name"]
-        self.type = dict["type"]
-        self.defaultValue = dict["defaultValue"]
-
-class Struct:
-    def __init__(self, modifier = "", name ="", members=[]):
-        self.modifier: str = modifier
-        self.name: str = name
-        self.members: List[Variable] = members
-    def toDict(self) -> dict:
-        return {
-            "modifier": self.modifier,
-            "name": self.name,
-            "members": [x.toDict() for x in self.members]
-        }
-    def fromDict(self, dict: dict):
-        self.modifier = dict["modifier"]
-        self.name = dict["name"]
-        self.members = [Variable().fromDict(x) for x in dict["members"]]
-
-class Function:
-    def __init__(self, modifier="", name="", returnType="", parameters: List[Variable]=[], body=""):
-        self.modifier = modifier
-        self.name = name
-        self.returnType = returnType
-        self.parameters = parameters
-        self.body = body
-    def toDict(self) -> dict:
-        return {
-            "modifier": self.modifier,
-            "name": self.name,
-            "returnType": self.returnType,
-            "parameters": [x.toDict() for x in self.parameters],
-            "body": self.body
-        }
-    def fromDict(self, dict: dict):
-        self.modifier = dict["modifier"]
-        self.name = dict["name"]
-        self.returnType = dict["returnType"]
-        self.parameters = [Variable().fromDict(x) for x in dict["parameters"]]
-        self.body = dict["body"]
-
-class Feature:
-    def __init__(self, path):
-        self.path = path
-        parts = path.split("/")
-        fname = parts[-1].split(".")
-        self.name = fname[0]
-        self.ext = fname[2]
-        self.parent = parts[-2]
-        if self.parent == "fnf": self.parent = "Feature"
-        self.variables: List[Variable] = []
-        self.structs: List[Struct] = []
-        self.functions: List[Function] = []
-        self.inBlocks: List[SourceBlock] = []
-        self.outBlocks: List[SourceBlock] = []
-
-    def toDict(self) -> dict:
-        return {
-            "name": self.name,
-            "parent": self.parent,
-            "language": self.ext,
-            "variables": [x.toDict() for x in self.variables],
-            "structs": [x.toDict() for x in self.structs],
-            "functions": [x.toDict() for x in self.functions]
-        }
-    def fromDict(self, dict: dict):
-        self.name = dict["name"]
-        self.parent = dict["parent"]
-        self.ext = dict["language"]
-        self.variables = [Variable().fromDict(x) for x in dict["variables"]]
-        self.structs = [Struct().fromDict(x) for x in dict["structs"]]
-        self.functions = [Function().fromDict(x) for x in dict["functions"]]
-
-class Context:
-    def __init__(self):
-        self.features = []
-        self.functions = {}
-        self.sourceBlocks = []
-
-    def toDict(self) -> dict:
-        return {
-            "features": [x.toDict() for x in self.features],
-            "functions": {k: v.toDict() for k, v in self.functions.items()}
-        }
-    def fromDict(self, dict: dict):
-        self.features = [Feature().fromDict(x) for x in dict["features"]]
-        self.functions = {k: Function().fromDict(v) for k, v in dict["functions"].items()}
-
-#-------------------------------------------------------------------------------------------
-# utility stuff
-
-def writeFile(outPath, text):
-    os.makedirs(os.path.dirname(outPath), exist_ok=True)
-    with open(outPath, "w") as f:
-        f.write(text)
-
-#-----------------------------------------------------------------------------------------------
-# SourceLine holds a line of source code, a tag, and the source line number
-
-class SourceLine:
-    def __init__(self, code: str, index=0, tag=""):
-        self.code = code
-        self.index = index
-        self.tag = tag
-
-    def toString(self):
-        def pad(s, n):
-            return s + " " * (n - len(s))
-        return pad(f"{self.index}: [{self.tag}]", 14) + self.code
-
-    def fromString(self, s):
-        iColon = s.find(":")
-        iBracket = s.find("[", iColon)
-        iBracketEnd = s.find("]", iBracket)
-        index = int(s[:iColon])
-        tag = s[iBracket+1:iBracketEnd]
-        code = s[iBracketEnd+1:]
-        return SourceLine(code, index, tag)
-    
-    def indent(self):
-        self.code = "    " + self.code
-        return self
-
-class SourceBlock:
-    def __init__(self, lines: List[SourceLine]):
-        self.lines = lines
-        self.entity = None
-
-    def tag(self):
-        return self.lines[0].tag
-    
-    # indent a block by 4 spaces
-    def indent(self):
-        for line in self.lines:
-            line.code = "    " + line.code
-        return self
-    
-    @staticmethod
-    # save blocks to text file
-    def saveBlocks(blocks, savePath):
-        log("saveBlocks: " + savePath)
-        # make sure folder exists:
-        os.makedirs(os.path.dirname(savePath), exist_ok=True)
-        with open(savePath, "w") as f:
-            for block in blocks:
-                for line in block.lines:
-                    f.write(line.toString())
-                    f.write("\n")
-
-    @staticmethod
-    # load blocks from text file
-    def loadBlocks(loadPath):
-        log("loadBlocks: " + loadPath)
-        blocks = []
-        if not os.path.exists(loadPath): return blocks
-        with open(loadPath, "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                sourceLine = SourceLine().fromString(line)
-                if (sourceLine.tag != ""):
-                    block = SourceBlock([sourceLine])
-                    blocks.append(block)
-                else:
-                    blocks[-1].lines.append(sourceLine)
-        return blocks
-    
-    @staticmethod
-    # convert to a text file, code only
-    def blocksToText(blocks):
-        out = ""
-        for block in blocks:
-            for line in block.lines:
-                out += line.code + "\n"
-        return out
-    
-#-----------------------------------------------------------------------------------------------
-# logging: turn on and offable
-
-# global boolean log_enabled, initially False
 global log_enabled
-log_enabled = False
+log_enabled: bool = True
 
-# log_enable() sets log_enabled to True
 def log_enable():
     global log_enabled
     log_enabled = True
 
-# log_disable() sets log_enabled to False
 def log_disable():
     global log_enabled
     log_enabled = False
 
-# log() takes arbitrary arguments and passes them to print
 def log(*args):
-    global log_enabled
     if log_enabled:
         print(*args)
 
-#-----------------------------------------------------------------------------------------------
-# regex builder takes a class and a human-readable descriptor array, and builds a regex
-
-class Term:
-    def __init__(self, optional=False, wordList =[], orList=[]):
-        self.optional = optional
-        self.wordList = wordList
-        self.orList = orList
-
-class Matcher:
-    def __init__(self, cls, descriptor):
-        self.cls = cls
-        self.descriptor = descriptor
-        self.members = []
-        self.end = 0
-        self.buildRegex()
-
-    # builds a regex from the human-readable descriptor
-    def buildRegex(self):
-        log("buildRegex", self.cls.__name__, self.descriptor)
-        # make an instance of the class
-        instance = self.cls()
-        # read out all the instance property names, but not methods
-        properties = [attr for attr in dir(instance) if not callable(getattr(instance, attr)) and not attr.startswith("__")]
-        log("class properties:")
-        for property in properties:
-            log("    ", property)
-        log("terms")
-        self.fullRegex = ""
-        wordPattern = r'\b[a-zA-Z]\w*'
-        numberPattern = r'\b\d+(?:\.\d+)?'
-        stringPattern = r'"[^"]*"|\'[^\']*\''
-        combinedPattern = fr'({numberPattern}|{wordPattern}|{stringPattern})'
-        endPattern = r'[^;\r]+'  # match anything except semicolon, or newline
-        endBracketPattern = r'[^\)]*'  # match anything except closing bracket
-        patterns = { "word": wordPattern, "number": numberPattern, "string": stringPattern, "any": combinedPattern, "toEnd": endPattern, "toEndBracket": endBracketPattern }
-        for term in self.descriptor:
-            regex = ""
-            parsedTerm = self.parseDescriptor(term)
-            for i, word in enumerate(parsedTerm.wordList):
-                if word.startswith("'") and word.endswith("'"):
-                    log("word:", word)
-                    word = word[1:-1]
-                    log("literal", word)
-                    escaped = re.escape(word)
-                    log("escaped", escaped)
-                    regex += escaped                        # match specific word, discard
-                else:
-                    if not word in properties:
-                        log("ERROR: word", word, "not in class properties")
-                    self.members.append(word)                           # word is name of class member to write
-                    if i == len(parsedTerm.wordList)-1:
-                        if len(parsedTerm.orList) > 1:  # it's an "or" list
-                            regex += "(" + r'|'.join(re.escape(s[1:-1]) for s in parsedTerm.orList) + ")"   # match option-list, capture
-                        elif len(parsedTerm.orList) ==1: # it's specifying which regex to use!
-                            log("using pattern", parsedTerm.orList[0], "for", word)
-                            regex += r'(' + patterns[parsedTerm.orList[0]] + r')' # match specific pattern, capture
-                        else: # use the most general pattern
-                            regex += combinedPattern
-                if i < len(parsedTerm.wordList) - 1:
-                    regex += r'\s+'                                     # match whitespace
-            if parsedTerm.optional:
-                if regex.startswith("(") and regex.endswith(")"):
-                    regex = regex + r'?'                          # make the whole term optional
-                else:
-                    regex = r'(?:' + regex + r')?'                # make the whole term optional, but without capturing extra stuff
-            log("    =>", regex)
-            self.fullRegex += regex + r'\s*'
-        log("fullRegex:", self.fullRegex)
-        log("members:", self.members)
-        self.pattern = re.compile(self.fullRegex)
-
-    # find all matches, write them into instances of the class
-    def findMatches(self, code):
-        results = []
-        for match in self.pattern.finditer(code):
-            self.end = match.end()
-            #print(f"Match: {match.group(0)}, Start: {match.start()}, End: {match.end()}")
-            instance = self.cls()
-            for i, group in enumerate(match.groups()):
-                #log("  group", i, group)
-                setattr(instance, self.members[i], group)
-            log("    instance:", instance.__dict__)
-            results.append(instance)
-        return results
-
-    # parse a descriptor into a Term
-    def parseDescriptor(self, desc):
-        log("parseDescriptor", desc)
-        iBracket = desc.find("(")
-        if iBracket >= 0 and not (desc[iBracket-1] == "'" and desc[iBracket+1] == "'"):
-            jBracket = desc.find(")")
-            orList = desc[iBracket+1:jBracket].split(" or ")
-            desc = desc[:iBracket] + desc[jBracket+1:]
-        else:
-            orList = []
-        optional = False
-        if desc.startswith("optional "):
-            optional = True
-            desc = desc[9:]
-        wordList = desc.split(" ")
-        log("  orList", orList)
-        log("  optional", optional)
-        log("  wordList", wordList)
-        return Term(optional, wordList, orList)
-
-def testRegex():
-    log_enable()
-    desc = Typescript().function()
-    matcher = Matcher(Function, desc)
-    functions = matcher.findMatches("def hello(name: string) : number {")
-    for function in functions:
-        log(function.__dict__)
-
-#-----------------------------------------------------------------------------------------------
-# language classes do code generation and parsing: plug your own in here
+#--------------------------------------------------------------------------------------------------------------------------
+# parsing typescript/python/cpp using language-specific grammars in a human-readable format
 
 class Language:
-    def __init__(self):
-        self.ext = ""
-
-    def comment(self):
-        pass
-
-    def indent(self):
-        pass
-
-    def variable(self):
-        pass
-
-    def struct(self):
-        pass
-
-    def output_feature(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        pass
-
-    def output_variable(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        pass
-
-    def output_struct(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        pass
-
-    def output_function(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        pass
-
-    def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        pass
-
-    def extend_function(self, existing: SourceBlock, new: Function, feature: Feature) -> SourceBlock:
-        pass
-
-    def output_classDecl(self, name) -> SourceLine:
-        pass
-
-    def output_classDeclEnd(self) -> SourceLine:
-        pass
-
-    def output_contextPreamble(self, name) -> SourceBlock:
-        pass
-
-    def output_testAllFunction(self, features: List[Feature]) -> SourceBlock:
-        pass
-
+    def __init__(self, name: str, extension: str): 
+        self.name = name
+        self.extension = extension
+    def rules(self): return {}
     @staticmethod
-    def getLanguage(ext):
+    def fromExtension(extension: str):
         for subclass in Language.__subclasses__():
-            instance = subclass()
-            if instance.ext == ext:
-                return instance
-        raise Exception("Language not found")
-
-# Typescript defines variable, struct and function syntax for fnf.ts, in a human-readable way
+            if subclass().extension == extension:
+                return subclass()
+        return None
+    
 class Typescript(Language):
-    def __init__(self):
-        self.ext = "ts"
-
-    def comment(self):
-        return "//"
-
-    def indent(self):
-        return "{"
-
-    def variable(self):
-        return ["optional modifier('var' or 'const')", "name(word)", "optional ':' type(word)", "optional '=' defaultValue(toEnd)"]
+    def __init__(self): super().__init__("typescript", "ts")
+    def rules(self): 
+        return {
+            "feature": ["'feature'", "name(word)", "optional 'extends' parent(word)", "body(block{})"],
+            "variable": ["modifier('var' or 'const')", "name(word)", "optional ':' type(word)", "optional '=' value(toEnd)"],
+            "struct": ["modifier('struct' or 'extend')", "name(word)", "body(block{})"],
+            "function": ["modifier('def' or 'replace' or 'on' or 'before' or 'after')", "name(word)", "params(bracketList)", "optional ':' type(word)", "body(block{})"]
+        }
     
-    def struct(self):
-        return ["modifier('struct' or 'extend')", "name(word)"]
-    
-    def function(self):
-        return ["modifier('def' or 'replace' or 'on' or 'after' or 'before')", "name(word)", "'('", "parameters(toEndBracket)", "')'", "optional ':' returnType(word)"]
-    
-    # output feature-clause as typescript code:
-    def output_feature(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        out = SourceBlock([])
-        if len(block.lines) != 1: raise Exception("Expected exactly one line in feature block")
-        line = block.lines[0]
-        extends = f"extends _{feature.parent}" if feature.parent != "Feature" else ""
-        out.lines.append(SourceLine(f"export class _{feature.name}{extends}" + " {", line.index, line.tag))
+class Python(Language):
+    def __init__(self): super().__init__("python", "py")
+    def rules(self):
+        return {
+            "feature" : ["'feature'", "name(word)", "optional '(' parent(word) ')'", "body(block)"],
+            "variable" : ["name(word)", "optional ':' type(word)", "optional '=' value(toEnd)"],
+            "struct" : ["modifier('struct' or 'extend')", "name(word)", "body(block)"],
+            "function": ["modifier('def' or 'replace' or 'on' or 'before' or 'after')", "name(word)", "params(bracketList)", "optional '->' type(word)", "body(blockIndent)"]
+        }
+
+class Cpp(Language):
+    def __init__(self): super().__init__("cpp", "cpp")
+    def rules(self):
+        return {
+            "feature" : ["'feature'", "name(word)", "optional ':' parent(word)", "body(block{})"],
+            "variable" : ["optional modifier('const')", "type(word)" "name(word)", "optional '=' value(toEnd)"],
+            "struct" : ["modifier('struct' or 'extend')", "name(word)", "body(block{})"],
+            "function" : ["modifier('def' or 'replace' or 'on' or 'before' or 'after')", "type(word)" "name(word)", "params(bracketed)", "body(block{})"]
+        }
+
+#--------------------------------------------------------------------------------------------------------------------------
+# regular expressions to detect terms in the language definitions
+
+def literalRegex(): return r"('[^']*')"
+def wordRegex(): return r'(\w+)'
+def bracketRegex(): return r'(\([^)]*\))'
+def propertyRegex(): return wordRegex() + bracketRegex() + '?'
+def itemRegex(): return literalRegex() + "|" + propertyRegex()
+
+def reMatch(regex: str, text: str) -> List[str]:
+    pattern = re.compile(regex)
+    match = pattern.search(text)
+    if match==None: return []
+    return [match.group(i) for i in range(1, len(match.groups())+1)]
+
+def testLiteralRegex():
+    log("testLiteralRegex", reMatch(literalRegex(), "'hello'"))
+
+def testWordRegex():
+    log("testWordRegex", reMatch(wordRegex(), "hello"))
+
+def testBracketRegex():
+    log("testBracketRegex", reMatch(bracketRegex(), "(hello)"))
+
+def testPropertyRegex():
+    log("testPropertyRegex", reMatch(propertyRegex(), "hello(world)"))
+
+def testItemRegex():
+    log("testItemRegex", reMatch(itemRegex(), "'hello'"))
+    log("testItemRegex", reMatch(itemRegex(), "hello"))
+    log("testItemRegex", reMatch(itemRegex(), "hello(world)"))
+
+def testRegex():
+    testLiteralRegex()
+    testWordRegex()
+    testBracketRegex()
+    testPropertyRegex()
+    testItemRegex()
+
+#--------------------------------------------------------------------------------------------------------------------------
+# rules and terms
+
+class TermItem:
+    def __init__(self, literal: str, name: str, brackets: str):
+        self.literal = literal[1:-1] if literal else None
+        self.name = name
+        self.brackets = brackets[1:-1] if brackets else None
+        self.options = []
+        if self.brackets:
+            if " or " in self.brackets:
+                self.options = [option[1:-1] for option in self.brackets.split(" or ")]
+
+    def __str__(self):
+        out = ""
+        if self.literal!=None: out += "'" + self.literal + "'"
+        if self.name!=None: out += self.name
+        if self.brackets!=None: out += "(" + self.brackets + ")"
         return out
 
-    # output variable as typescript code: var/const -> static
-    def output_variable(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        out = SourceBlock([])
-        for line in block.lines:
-            code = line.code
-            code = code.replace("var", "static").replace("const", "static")
-            out.lines.append(SourceLine(code, line.index, line.tag))
-        return out
-
-    # output struct as typescript code: struct->class, auto-constructor
-    def output_struct(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        struct = block.entity
-        out = SourceBlock([])
-        code = block.lines[0].code
-        code = code.replace("struct", "export class")
-        code = code.replace(struct.name, f"{struct.name}")
-        out.lines.append(SourceLine(code, block.lines[0].index, block.lines[0].tag))
-        for line in block.lines[1:]:
-            out.lines.append(SourceLine(line.code, line.index, line.tag))
-        # remove last "}" from out.lines[-1]
-        lastLine = out.lines[-1].code
-        # find last index of "}" in lastLine:
-        i = lastLine.rfind("}")
-        out.lines[-1].code = lastLine[:i]
-        constructorParams = [var.toString() for var in struct.members]
-        constructor = "constructor(" + ", ".join(constructorParams) + ") {"
-        out.lines.append(SourceLine(constructor, block.lines[0].index).indent())
-        for member in struct.members:
-            out.lines.append(SourceLine(f"    this.{member.name} = {member.name};", block.lines[0].index).indent())
-        out.lines.append(SourceLine("}", block.lines[0].index).indent())
-        out.lines.append(SourceLine("}", block.lines[0].index))
-        return out
-    
-    # output function as typescript code: remove modifier, add _cx: any parameter, modify all function calls
-    def output_function(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        function = block.entity
-        out = SourceBlock([])
-        code = block.lines[0].code
-        # replace the modifier with nothing
-        modifiers = ["def", "replace", "on", "before", "after"]
-        for m in modifiers: code = code.replace(m + " ", "static ")
-        # add a new cx: any parameter to the start of the param-list
-        cxParam = "_cx: any"
-        if len(function.parameters) > 0: cxParam += ", "
-        code = code.replace("(", f"({cxParam}")
-        out.lines.append(SourceLine(code, block.lines[0].index, block.lines[0].tag))
-        # replace all function calls with _cx.function(_cx, ...)
-        for line in block.lines[1:]:
-            code = self.replace_function_calls(line.code)
-            out.lines.append(SourceLine(code, line.index, line.tag))
-        return out
-
-    def replace_function_calls(self, code):
-        pattern = r'\b(?<!\.)\w+\s*\([^()]*\)'
-        def replacer(match):
-            func_call = match.group(0)
-            func_name, params_part = func_call.split('(', 1)
-            func_name = func_name.strip()
-            params = params_part[:-1].strip()  # Remove the closing parenthesis and whitespace
-            if params:
-                return f'_cx.{func_name}(_cx, {params})'
+class Term:
+    def __init__(self, text: str):
+        pattern = re.compile(itemRegex())
+        matches = pattern.finditer(text)
+        self.items = []
+        self.optional = False
+        for match in matches:
+            literal = match.group(1)
+            name = match.group(2)
+            brackets = match.group(3)
+            if name=="optional":
+                self.optional = True
             else:
-                return f'_cx.{func_name}(_cx)'
-        
-        return re.sub(pattern, replacer, code)
-    
-    # output test function
-    def output_test(self, feature: Feature, block: SourceBlock) -> SourceBlock:
-        out = SourceBlock([])
-        out.lines.append(SourceLine("static _test(_cx: any) {", 0, block.lines[0].tag))
-        out.lines.append(SourceLine(f'    _source("{feature.path}");', 0))
-        for line in block.lines:
-            code = line.code
-            outcode = ""
-            parts = code.split("==>")
-            lhs = parts[0].strip()
-            rhs = parts[1].strip() if len(parts) > 1 else ""
-            lhs = self.replace_function_calls(lhs)
-            if (rhs == ""):
-                outcode = f'    _output({lhs}, {line.index});'
-            else:
-                outcode = f'    _assert({lhs}, {rhs}, {line.index});'
-            out.lines.append(SourceLine(outcode, line.index))
-        out.lines.append(SourceLine("}"))
-        return out
-    
-    # builds a composite function from an existing function, a new function, and a modifier
-    def extend_function(self, existing: SourceBlock|None, newFunc: Function, feature: Feature) -> SourceBlock:
-        if existing is None or newFunc.modifier == "replace":
-            block = SourceBlock([])
-            params = ", ".join([var.toString() for var in newFunc.parameters])
-            params = "_cx: any" + (", " if params != "" else "") + params
-            returnType = "" if newFunc.returnType == None else f" : {newFunc.returnType}"
-            block.lines.append(SourceLine(f"{newFunc.name}({params}){returnType} {{", 0))
-            args = ", ".join([var.name for var in newFunc.parameters])
-            args = "_cx" + (", " if args != "" else "") + args
-            block.lines.append(SourceLine(f"    return _{feature.name}.{newFunc.name}({args});", 0))
-            block.lines.append(SourceLine("}", 0))
-            return block
-        
-    # outputs a class declaration
-    def output_classDecl(self, name) -> SourceLine:
-        return SourceLine(f"export class {name} {{")
-    
-    # outputs a class declaration end
-    def output_classDeclEnd(self) -> SourceLine:
-        return SourceLine("}")
-    
-    # outputs the preamble lines for a context
-    def output_contextPreamble(self, name) -> SourceBlock:
-        out = SourceBlock([])
-        out.lines.append(SourceLine(f"// ᕦ(ツ)ᕤ", 0, "preamble"))
-        out.lines.append(SourceLine(f"// Context {name}"))
-        out.lines.append(SourceLine(f"// generated by fnf.py"))
-        out.lines.append(SourceLine(f""))
-        out.lines.append(SourceLine(f"var s_sourcePath: string = '';"))
-        out.lines.append(SourceLine("function _source(path: string) { s_sourcePath = path; }"))
-        out.lines.append(SourceLine("function _output(value: any, line: number) { console.log(`${s_sourcePath}:${line} ==> ${value}`); }"))
-        out.lines.append(SourceLine("function _assert(lhs: any, rhs: any, line: number) { if (lhs != rhs) console.log(`${s_sourcePath}:${line} ==> ${lhs} != ${rhs}`); }"))
-        out.lines.append(SourceLine(""))
-        out.lines.append
-        return out
-    
-    # outputs test-all function
-    def output_testAllFunction(self, features: List[Feature]) -> SourceBlock:
-        out = SourceBlock([])
-        out.lines.append(SourceLine("_testAll(_cx: any) {", 0, "test"))
-        for feature in features:
-            out.lines.append(SourceLine(f"    _{feature.name}._test(_cx);", 0))
-        out.lines.append(SourceLine("}", 0))
+                self.items.append(TermItem(literal, name, brackets))
+    def __str__(self):
+        out = "Term(" if not self.optional else "Optional("
+        out += ", ".join([str(item) for item in self.items])
+        out += ")"
         return out
 
-#-----------------------------------------------------------------------------------------------
-# FeatureBuilder class: builds a single feature from source
+class Rule:
+    def __init__(self, name: str, parts: List[str]):
+        self.name = name
+        self.terms = [Term(part) for part in parts]
 
-class FeatureBuilder:
-    def __init__(self, feature):
-        self.feature = feature
+    def __str__(self):
+        out = "Rule("
+        out += ", ".join([str(term) for term in self.terms])
+        out += ")"
+        return out
 
-    def buildFeature(self):
-        feature = self.feature
-        jsonPath = self.jsonPath(feature)
-        log("jsonPath: " + jsonPath)
-        jsonDate = os.path.getmtime(jsonPath) if os.path.exists(jsonPath) else 0
-        fileDate = os.path.getmtime(feature.path)
-        sourceDate = os.path.getmtime(__file__)
-        if sourceDate > jsonDate or jsonDate < fileDate:
-            self.buildFeatureFromSource(feature)
-            self.saveFeature(feature)
-        else:
-            self.loadFeature(feature)
+def testRules():
+    log("testRules")
+    ts = Typescript()
+    rule = Rule(ts.feature())
+    log(rule)
 
-    # build feature from source
-    def buildFeatureFromSource(self, feature):
-        log("buildFeatureFromSource: " + feature.path)
-        text = ""
-        with open(feature.path, "r") as f:
-            text = f.read()
-        sourceLines = self.extractSource(text)
-        taggedLines = self.tagSource(sourceLines)
-        taggedBlocks = self.separateBlocks(taggedLines)
-        orderedBlocks = self.reorderBlocks(taggedBlocks)
-        feature.inBlocks = orderedBlocks
-        self.parseBlocks(feature, orderedBlocks)
-        outputBlocks = self.outputBlocks(feature, orderedBlocks)
-        feature.outBlocks = outputBlocks
+#--------------------------------------------------------------------------------------------------------------------------
+# files
 
-    # output blocks to target language source code
-    def outputBlocks(self, feature, orderedBlocks):
-        log_enable()
-        log("outputBlocks")
-        language : Language = Language.getLanguage(feature.ext)
-        outputBlocks = []
-        for block in orderedBlocks:
-            if block.tag() == "feature":
-                outputBlocks.append(language.output_feature(feature, block))
-            if block.tag() == "var":
-                outputBlocks.append(language.output_variable(feature, block).indent())
-            elif block.tag() == "struct":
-                outputBlocks.append(language.output_struct(feature, block))
-            elif block.tag() == "func":
-                outputBlocks.append(language.output_function(feature, block).indent())
-            elif block.tag() == "test":
-                outputBlocks.append(language.output_test(feature, block).indent())
-        outputBlocks.append(SourceBlock([SourceLine("}", 0)]))
-        
-        for i, block in enumerate(outputBlocks):
-            for line in block.lines:
-                log(line.toString())
-        return outputBlocks
-
-    # parse blocks into variables, structs, functions, etc
-    def parseBlocks(self, feature, orderedBlocks):
-        log("parseBlocks")
-        feature.variables = []
-        feature.structs = []
-        feature.functions = []
-        language = Language.getLanguage(feature.ext)
-        for block in orderedBlocks:
-            if block.tag() == "var":
-                feature.variables += self.parseVariables(block, language)
-            elif block.tag() == "struct":
-                feature.structs += self.parseStructs(block, language)
-            elif block.tag() == "func":
-                feature.functions += self.parseFunctions(block, language)
-
-    # parse a variable block
-    def parseVariables(self, block, language) -> Variable:
-        log("parseVariable")
-        variables = []
-        matcher = Matcher(Variable, language.variable())
-        for line in block.lines:
-            variables += matcher.findMatches(line.code)
-        block.entity = variables[0]
-        return variables
-
-    # parse a struct block
-    def parseStructs(self, block, language) -> Struct:
-        log("parseStruct")
-        matcher = Matcher(Struct, language.struct())
-        structs = []
-        for line in block.lines:
-            structs += matcher.findMatches(line.code)
-        if len(structs) != 1: raise Exception("Expected exactly one struct")
-        structs[0].members = self.parseVariables(block, language)[2:]
-        block.entity = structs[0]
-        return structs
-
-    # parse a function block
-    def parseFunctions(self, block, language) -> Function:
-        log("parseFunction")
-        matcher = Matcher(Function, language.function())
-        functions = []
-        for line in block.lines:
-            log(line.toString())
-            functions += matcher.findMatches(line.code)
-        if len(functions) != 1: 
-            print("Expected exactly one function, found", len(functions))
-            exit(0)
-        else:
-            log("found a single function :-)")
-            varMatcher = Matcher(Variable, language.variable())
-            functions[0].parameters = varMatcher.findMatches(functions[0].parameters)
-            functions[0].body = block.lines[0].code[matcher.end:] + "\n" + "\n".join([line.code for line in block.lines[1:]])
-            log("function:", functions[0].toDict())
-        block.entity = functions[0]
-        return functions
-
-    # reorder blocks: structs, feature, variables, functions, tests
-    def reorderBlocks(self, taggedBlocks: List[SourceBlock]) -> List[SourceBlock]:
-        log("reorderBlocks")
-        orderedBlocks = []
-        for tag in ["struct", "feature", "var", "func", "test"]:
-            for block in taggedBlocks:
-                if block.tag() == tag:
-                    orderedBlocks.append(block)
-        for i, block in enumerate(orderedBlocks):
-            for line in block.lines:
-                log(line.toString())
-        return orderedBlocks
-
-    # separate blocks of tagged lines into variables, structs, functions, etc
-    def separateBlocks(self, taggedLines: List[SourceLine]) -> List[SourceBlock]:
-        log("separateBlocks")
-        blocks: List[SourceBlock] = []
-        currentBlock: SourceBlock = None
-        for line in taggedLines:
-            if line.tag != "":
-                currentBlock = SourceBlock([line])
-                blocks.append(currentBlock)
-            else:
-                currentBlock.lines.append(line)
-        blocks = self.consolidateTestBlocks(blocks)
-        for i, block in enumerate(blocks):
-            for line in block.lines:
-                log(line.toString())
-        return blocks
+def readTextFile(path: str) -> str:
+    with open(path, "r") as file:
+        return file.read()
     
-    # consolidate all "test" blocks into a single block
-    def consolidateTestBlocks(self, blocks: List[SourceBlock]) -> List[SourceBlock]:
-        testBlock = SourceBlock([])
-        for block in blocks:
-            if block.tag() == "test":
-                testBlock.lines += block.lines
-        # remove the tag from all testBlock lines except the first
-        for line in testBlock.lines[1:]: line.tag = ""
-        # now remove all "test" tagged blocks from blocks:
-        blocks = [block for block in blocks if block.tag() != "test"]
-        # add the test block to the end
-        blocks.append(testBlock)
-        return blocks
-    
-    # tag source code with function, struct, variable, etc
-    def tagSource(self, source: List[SourceLine]) -> List[SourceLine]:
-        log("tagSource")
-        modifiers = ["feature", "def", "replace", "on", "before", "after", "struct", "extend", "var", "const"]
-        tags = ["feature", "func", "func", "func", "func", "func", "struct", "struct", "var", "var"]
-        taggedLines: List[SourceLine] = []
-        for line in source:
-            firstWord = line.code.strip().split(" ")[0]
-            tag = ""
-            index = modifiers.index(firstWord) if firstWord in modifiers else -1
-            if index >= 0:
-                tag = tags[index]
-            elif "==>" in line.code:
-                tag = "test"
-            taggedLines.append(SourceLine(line.code, line.index, tag))
-        for i, line in enumerate(taggedLines):
-            log(f"{" " if i < 10 else ""}{i}: {line.toString()}")
-        return taggedLines
+def writeTextFile(path: str, text: str):
+    # ensure directories exist:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as file:
+        file.write(text)
 
-    # extract source code from text
-    def extractSource(self, text) -> List[SourceLine]:
-        log("extractSource")
-        source: List[SourceLine] = []
-        lines = text.split("\n")
-        inCodeBlock = False
-        for i, line in enumerate(lines):
-            if not inCodeBlock:
-                if line.startswith("    "):
-                    codeLine = line[4:].rstrip()
-                    source.append(SourceLine(codeLine, i+1))
-                else:
-                    if line.startswith("```"):
-                        inCodeBlock = True
+#--------------------------------------------------------------------------------------------------------------------------
+# extract code from .fnf.*.md files, outputs code with line numbers at the start
+
+def extractCode(text) -> Tuple[str, List[int]]:
+    out = ""
+    lines = text.split("\n")
+    inCodeBlock = False
+    sourceMap = []
+    for i, line in enumerate(lines):
+        if not inCodeBlock:
+            if line.startswith("    "):
+                codeLine = line[4:].rstrip()
+                out += codeLine + "\n"
+                sourceMap.append(i+1)
             else:
                 if line.startswith("```"):
-                    inCodeBlock = False
-                else:
-                    codeLine = line.rstrip()
-                    source.append(SourceLine(codeLine, i+1))
-        for i, line in enumerate(source):
-            log(f"{" " if i < 10 else ""}{i}: {line.toString()}")
-        return source
-        
-    # save feature to (path)
-    def saveFeature(self, feature):
-        log("saveFeature: " + feature.name)
-        with open(self.jsonPath(feature), "w") as f:
-            json.dump(feature.toDict(), f, indent=4)
-        SourceBlock.saveBlocks(feature.inBlocks, self.inBlockPath(feature))
-        SourceBlock.saveBlocks(feature.outBlocks, self.outBlockPath(feature))
-
-    # load feature from (path)
-    def loadFeature(self, feature):
-        log("loadFeature: " + feature.name)
-        with open(self.jsonPath(feature), "r") as f:
-            feature.fromDict(json.load(f))     
-        feature.inBlocks = SourceBlock.loadBlocks(self.inBlockPath(feature))
-        feature.outBlocks = SourceBlock.loadBlocks(self.outBlockPath(feature))
-        
-    # get json path for feature
-    def jsonPath(self, feature) -> str:
-        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.json").replace("source/fnf/", "/build/fnf/")
-    
-    # get path of "incoming blocks" file
-    def inBlockPath(self, feature) -> str:
-        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.in.blocks").replace("source/fnf/", "/build/fnf/")
-    
-    # get path of "outgoing blocks" file
-    def outBlockPath(self, feature) -> str:
-        return feature.path.replace(f".fnf.{feature.ext}.md", f".{feature.ext}.out.blocks").replace("source/fnf/", "/build/fnf/")
-    
-
-#-----------------------------------------------------------------------------------------------
-# ContextBuilder class: builds a context from a list of features
-
-class ContextBuilder:
-    def __init__(self, name, features: List[Feature]):
-        self.name = name
-        self.features = features
-        
-    def makeBlocks(self) -> List[SourceBlock]:
-        outBlocks = []
-        language = Language.getLanguage(self.features[0].ext)
-        # add the language preamble
-        outBlocks.append(language.output_contextPreamble(self.name))
-
-        # add all the feature contexts
-        for feature in self.features:
-            outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} {feature.path}", 0, "source")]))
-            outBlocks += feature.outBlocks
-        padding = 80 - len(self.name) - 12
-        outBlocks.append(SourceBlock([SourceLine(f"{language.comment()} Context {self.name}", 0, "source")]))
-        
-        # build a list of functions
-        functions = {}      # map name -> SourceBlock
-        for feature in self.features:
-            for func in feature.functions:
-                if func.modifier == "def":
-                    if func.name in functions:
-                        raise Exception(f"Function {func.name} already defined")
-                else:
-                    if not func.name in functions:
-                        raise Exception(f"Function {func.name} not defined")
-                existing: SourceBlock = functions.get(func.name, None)
-                newBlock = language.extend_function(existing, func, feature)
-                functions[func.name] = newBlock
-        cDecl = language.output_classDecl("_Context_" + self.name)
-        cDecl.tag = "context"
-        outBlocks.append(SourceBlock([cDecl]))
-        for name, block in functions.items():
-            outBlocks.append(block.indent())
-        outBlocks.append(language.output_testAllFunction(self.features).indent())
-        outBlocks.append(SourceBlock([language.output_classDeclEnd()]))
-        log("ContextBuilder.build")
-        for block in outBlocks:
-            for line in block.lines:
-                log(line.toString())
-        self.saveContext(outBlocks)
-
-    def saveContext(self, outBlocks):
-        SourceBlock.saveBlocks(outBlocks, f"build/cx/Context_{self.name}.ts.out.blocks")
-        code = SourceBlock.blocksToText(outBlocks)
-        ext = self.features[0].ext
-        outPath = "build/" + ext + "/Context_" + self.name + "." + ext
-        writeFile(outPath, code)
-        
-        return outBlocks
-
-#-----------------------------------------------------------------------------------------------
-# SourceMap : maps line number to (source, line) based on context
-
-class SourceMap:
-    def __init__(self, sourceBlocks, filename, comment):
-        source = ""
-        self.map = []
-        sourceLines = [].join([block.lines for block in sourceBlocks])
-        for i, line in enumerate(sourceLines):
-            if line.tag == "source":
-                source = line.code.replace(comment + " ", "")
-            if line.index != 0:
-                self.map.push((source, line.index))
-            else:
-                self.map.push((filename, i+1))
-
-    def get(self, lineIndex): # 1-based
-        if lineIndex > len(self.map): return 0
-        return self.map[lineIndex-1]    
-
-#-----------------------------------------------------------------------------------------------
-# FeatureManager class: manages all features
-
-class FeatureManager:
-    # constructor: finds where to look for features
-    def __init__(self):
-        log("FeatureManager.init")
-        self.cwd = os.getcwd() + "/source/fnf"
-        log("cwd: " + self.cwd)
-        self.features = {}
-        
-    # build or maintain the feature graph, minimising work
-    def buildFeatures(self):
-        log("buildFeatures")
-        filesFound = self.scanFolder()
-        for file in filesFound:
-            self.buildFeature(file)
-
-    # build context from list, name
-    def buildContext(self, name: str, features: List[Feature]):
-        log_enable()
-        log("buildContext: " + name)
-        builder = ContextBuilder(name, features)
-        blocks = builder.makeBlocks()
-        
-    # build feature from given file
-    def buildFeature(self, file):
-        log("buildFeature: " + file)
-        feature = self.getFeature(file)
-        builder = FeatureBuilder(feature)
-        builder.buildFeature()
-
-    # get feature for "file", or create it if it doesn't exist
-    def getFeature(self, file) -> Feature:
-        log("getFeature: " + file)
-        if file in self.features:
-            return self.features[file]
+                    inCodeBlock = True
         else:
-            feature = Feature(file)
-            self.features[file] = feature
-            return feature
+            if line.startswith("```"):
+                inCodeBlock = False
+            else:
+                codeLine = line.rstrip()
+                out += codeLine + "\n"
+                sourceMap.append(i+1)
+    return (out, sourceMap)
 
-    # find all files in the source folder, in order of creation-date
-    def scanFolder(self) -> List[str]:
-        log_enable()
-        log("scanFolder")
-        # scan the directory for .fnf.md files
-        filesFound = []
-        for root, dirs, files in os.walk(self.cwd):
-            for file in files:
-                if file.endswith(".fnf.ts.md"):
-                    filesFound.append(os.path.join(root, file))
-        # sort files into ascending order of creation-date
-        filesFound.sort(key=os.path.getctime)
-        log("filesFound:", filesFound)
-        return filesFound
+def testExtractCode():
+    log("testExtractCode")
+    text = readTextFile("source/fnf/Hello.fnf.ts.md")
+    code, sourceMap = extractCode(text)
+    log(code)
+    log(sourceMap)
 
-#----------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------
+# match rules against code
 
-def main():
-    print("ᕦ(ツ)ᕤ fnf.py")
-    fm = FeatureManager()
-    fm.buildFeatures()
-    fm.buildContext("all", list(fm.features.values()))
+def isWhitespace(c: str) -> bool:
+    return c==" " or c=="\n"
+
+# return (matched, remaining, endChar)
+def matchBlockWithBraces(braces: str, text: str, iChar: int) -> Tuple[bool, int, int]:
+    log("matchBlockWithBraces")
+    i = iChar
+    braceCount = 0
+    start = iChar
+    while i < len(text):
+        if text[i]== braces[0]:
+            braceCount += 1
+            if braceCount==1:
+                start = i
+        elif text[i]== braces[1]:
+            braceCount -= 1
+            if braceCount==0:
+                iReturn = i
+                while(iReturn < len(text) and isWhitespace(text[iReturn])):
+                    iReturn += 1
+                return (True, start+1, iReturn)
+        i += 1
+    if braceCount == 1:
+        iReturn = start+1
+        while iReturn < len(text) and isWhitespace(text[iReturn]):
+            iReturn += 1
+        return (True, iReturn, len(text))
+    return (False, iChar, "")
+
+# return matched, remaining, values
+def matchItem(item: TermItem, text: str, iChar: int) -> Tuple[bool, int, dict]:
+    regexps = { "word": wordRegex() }
+    if item.literal:
+        if text[iChar:].startswith(item.literal):
+            iReturn = iChar + len(item.literal)
+            while(iReturn < len(text) and (text[iReturn]==' ' or text[iReturn]=='\n')):
+                iReturn += 1
+            return (True, iReturn, {})
+    elif item.name:
+        if len(item.options)>0:
+            log("trying options:", item.options)
+            for option in item.options:
+                if text[iChar:].startswith(option):
+                    iReturn = iChar + len(option)
+                    while(iReturn < len(text) and (text[iReturn]==' ' or text[iReturn]=='\n')):
+                        iReturn += 1
+                    return (True, iReturn, {item.name: option})
+            return (False, iChar, {})
+        else:
+            matchType = item.brackets
+            log("matchType:", matchType)
+            if matchType in regexps:
+                match = reMatch(regexps[matchType], text[iChar:])
+                if len(match)>0:
+                    iReturn = iChar + len(match[0])
+                    while(iReturn < len(text) and (text[iReturn]==' ' or text[iReturn]=='\n')):
+                        iReturn += 1
+                    return (True, iReturn, {item.name: match[0]})
+            else:
+                if matchType == "bracketList": matchType = "block()" # really should just be able to put block() in grammar
+                if matchType.startswith("block"):
+                    braces = matchType[5:]
+                    (matched, iReturn, iEnd) = matchBlockWithBraces(braces, text, iChar)
+                    if matched:
+                        return (True, iReturn, {item.name: (iReturn, iEnd)})
+                    else:
+                        return (False, iChar, {})
+                log("unknown matchType:", matchType)
+    return (False, iChar, {})
+
+# return matched, remaining, values
+def matchTermNonOptional(term: Term, text: str, iChar: int) -> Tuple[bool, int, dict]:
+    iItem = 0
+    outputValues = {}
+    originalText = text
+    while iItem < len(term.items):
+        (matched, iCharNext, values) = matchItem(term.items[iItem], text, iChar)
+        if not matched:
+            return (False, iChar, {})
+        else:
+            outputValues.update(values)
+            iChar = iCharNext
+            iItem += 1
+    return (True, iChar, outputValues)
+
+def matchTerm(term: Term, text: str, iChar: int) -> Tuple[bool, int, dict]:
+    log("matchTerm", term)
+    (matched, iCharNext, values) = matchTermNonOptional(term, text, iChar)
+    if not matched and term.optional:
+        return (True, iChar, {})
+    return (matched, iCharNext, values)
+
+def matchRule(lang: Language, ruleName: str, text: str, iChar: int) -> Tuple[bool, int, dict]:
+    rule = Rule(ruleName, lang.rules()[ruleName])
+    log("matchRule", rule)
+    iTerm = 0
+    allValues = { "rule": rule.name }
+    while iTerm < len(rule.terms):
+        (matched, iCharNext, values) = matchTerm(rule.terms[iTerm], text, iChar)
+        if not matched:
+            return (False, iChar, {})
+        allValues.update(values)
+        iChar = iCharNext
+        iTerm += 1
+    return (True, iCharNext, allValues)
+
+def matchAnyRule(lang: Language, ruleNames: List[str], text: str, iChar: int) -> Tuple[bool, int, dict]:
+    for ruleName in ruleNames:
+        (matched, iCharNext, values) = matchRule(lang, ruleName, text, iChar)
+        if matched:
+            return (matched, iCharNext, values)
+    return (False, iChar, {})
+
+def matchFeature(lang: Language, text: str, iChar: int) -> Tuple[bool, int, dict]:
+    (matched, iChar, values) = matchRule(lang, "feature", text, iChar)
+    if matched:
+        log("matched feature :-)")
+    return (matched, iChar, values)
+
+def testMatchFunction():
+    lang = Typescript()
+    text = "def hello(name: string) : number  {\n    return 42;\n }"
+    (matched, iCharNext, values) = matchRule(lang, "function", text, 0)
+    log(values)
+    params = values["params"]
+    paramText = text[params[0]:params[1]]
+    log("params:", paramText)
+    body = values["body"]
+    bodyText = text[body[0]:body[1]].strip()
+    log("body:", bodyText)
+
+def testMatchFeature():
+    log("testMatchFeature")
+    path = "source/fnf/Hello.fnf.ts.md"
+    ext = path.split(".")[-2]
+    log(ext)
+    language = Language.fromExtension(ext)
+    (code, sourceMap) = extractCode(readTextFile(path))
+    (matched, remaining, values) = matchFeature(language, code, 0)
+    log(values)
+    log("body:")
+    iStart = values["body"][0]
+    iEnd = values["body"][1]
+    log(code[iStart:iEnd])
+
+#--------------------------------------------------------------------------------------------------------------------------
+
+def test():
+    #testRegex()
+    #testRules()
+    #testExtractCode()
+    #testMatchFunction()
+    testMatchFeature()
 
 if __name__ == "__main__":
-    main()
+    log("----------------------------------------------")
+    log("ᕦ(ツ)ᕤ fnf.py")
+    test()

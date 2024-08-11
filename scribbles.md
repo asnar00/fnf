@@ -1,5 +1,11 @@
 # scribbles
 
+alternative representation for a function:
+
+Function => sourceBlock, and other things.
+That way you don't need to keep any other data.
+Just the sourceblock.
+_______________________________________________
 Target workflow:
 - edit markdown in vscode
 - auto-save, rebuild/re-run
