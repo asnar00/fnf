@@ -6,6 +6,7 @@
 
 import os
 import re
+import json
 from typing import List
 from typing import Tuple
 
@@ -260,20 +261,21 @@ class Typescript(Language):
     
     def function(self):
         return label("function",
-                     sequence(set("modifier", enum("on", "after", "before", "replace")),
-                                keyword("("),
-                                set("resultName", word()),
-                                optional(sequence(keyword(":"), 
-                                           set("resultType", word()))),
-                                keyword(")"),
-                                keyword("="),
-                                set("name", word()),
-                                keyword("("),
-                                set("parameters", list(self.variable())),
-                                keyword(")"),
-                                self.indent(),
-                                set("body", toUndent()),
-                                self.undent()))
+                     sequence(
+                         set("modifier", enum("on", "after", "before", "replace")),
+                        keyword("("),
+                        set("resultName", word()),
+                        optional(sequence(keyword(":"), 
+                                    set("resultType", word()))),
+                        keyword(")"),
+                        keyword("="),
+                        set("name", word()),
+                        keyword("("),
+                        set("parameters", list(self.variable())),
+                        keyword(")"),
+                        self.indent(),
+                        set("body", toUndent()),
+                        self.undent()))
     
 #---------------------------------------------------------------------------------
 def testParser():
@@ -295,7 +297,9 @@ def testParser():
     result = parser(source)
     log_enable()
     log("-----------")
-    log("result:", result)
+    log("result:")
+    # convert result to a properly indented json string
+    print(json.dumps(result, indent=4))
     log("source:", source)
 
 #---------------------------------------------------------------------------------
