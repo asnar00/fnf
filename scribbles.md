@@ -1,5 +1,120 @@
 # scribbles
 
+ok, can't quite believe it but a sneaky all-nighter session has given us a brand new parser.
+this is super powerful and expressive, and can pretty much parse anything I feel like throwing at it, PROPERLY.
+
+There's still a bunch of work to do:
+
+    - error messages when things don't parse
+    - source-maps for proper (iLine, iChar) reporting
+    - extract code => sourcemap as before, just need to finish
+    
+I've also made the decision to standardise on the named-result form, i.e.
+
+    on (r: number) = add(a: number, b: number) {
+        r = a + b;
+    }
+
+This will be translateed by fnf.py into 
+
+    add(r: number, a: number, b: number) : number {
+        r = a + b;
+        return r;
+    }
+
+We can extend this to multiple parameters but this is pretty good for now.
+
+
+_____________________________________________________
+completely restarted again; because regular expressions aren't the way to parse multiple languages.
+instead, have written a sort of gonzo grammar specification.
+new style of coding involving copious tests everywhere, and it seems to work.
+organisation is "small to large", small first. If a calls b, b is before a.
+This actually is easier to figure out than the other way round.
+doing pretty well. Also this is turning into a decent rule parser.
+
+Todo tomorrow:
+
+finish parsing of "= defaultVal" for variables; implement "toEnd"
+we need the block-finder to deal with quotes, escaped characters and quotes, etc.
+so variable =defaultVal should read forward until top-level "," or ";" or "\n"
+
+and then we need some automated way of parsing deeper down, i.e. 
+variables within function params
+variables within struct body
+(var/struct/func) within features.
+
+    class Typescript(Language):
+        feature = ["
+            'feature'", 
+            "name : word", 
+            "optional 'extends' parent : word", 
+            "indent",
+            "components : list(component)"
+            "undent"
+        ]
+
+        component = [
+            "(variable or struct or function)"
+        ]
+
+        variable = [
+            "optional modifier : 'const' or 'var'",
+            "name : word",
+            "optional ':' type : word"
+        ]
+
+Even more dastardly, could you build rules just by calling functions?
+
+    class Typescript(Language):
+        def __init__(self):
+        
+        def feature(self):
+            return sequence(
+                literal("feature"),
+                word("name"),
+                optional([literal(":"), word("type")]),
+                indent(list(this.component))
+            )
+
+        def component(self):
+            return anyof(this.function, this.struct, this.variable)
+
+        def function(self):
+            return sequence([
+                set("modifier", enum(["on", "after", "before"]))
+                set("name", word())
+                set("params", bracketedList(this.variable, ","))
+                set("resultType", optional(sequence([literal(":"), word()])))
+                set("components", indent(list(this.component)))
+            ])
+
+        def component(self):
+            return anyof([this.function, this.struct, this.variable])
+
+        def function(self):
+            return sequence(
+
+
+
+
+
+struct = ["modifier('struct' or 'extend')", "'{' properties(list[variable]) '}'"]
+
+function = ["modifier(..)", "name(word)", "( params[list(variable)]",  ")", 
+            "optional ':' resultType(word)", 
+            "{", "body(any)" "}"
+
+And just like that we're building a full on parser eurgh
+ok anyway.
+
+"breadth-first approach" => find the top-level structures, put the second-level chunks in a queue. There's one sort "main routine" and that is "find matching close-brace".
+
+the bit of functionality we need in the grammar language is just a rule-name.
+
+
+
+---------------------------------------------------
 alternative representation for a function:
 
 Function => sourceBlock, and other things.
