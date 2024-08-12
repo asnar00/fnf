@@ -105,7 +105,7 @@ def sequence(*parserFns: List):
                 source.start = pos
                 return None
             else:
-                if isinstance(singleResult, dict):
+                if isinstance(singleResult, dict) and "_val" not in singleResult:
                     result.update(singleResult)
         return result
     return lambda source: parse_sequence(source, *parserFns)
@@ -291,7 +291,7 @@ def testParser():
                     }
                     """)
     ts = Typescript()
-    parser = debug(ts.feature())
+    parser = ts.feature()
     result = parser(source)
     log_enable()
     log("-----------")
