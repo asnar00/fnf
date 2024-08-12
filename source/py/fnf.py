@@ -52,17 +52,17 @@ def skipWhitespace(source: Source):
     while source.start < source.end and isWhitespace(source.text[source.start]):
         source.start += 1
     
-# literal(value) checks if the source starts with the value, and if so, returns the value
-def literal(value: str):
-    def parse_literal(source: Source, value: str):
-        log(f'parse_literal({value}) on "{source.text[source.start:source.end]})"')
+# keyword(value) checks if the source starts with the value, and if so, returns the value
+def keyword(value: str):
+    def parse_keyword(source: Source, value: str):
+        log(f'parse_keyword({value}) on "{source.text[source.start:source.end]})"')
         skipWhitespace(source)
         pos = source.start
         if source.text.startswith(value, source.start):
             source.start += len(value)
             return {}
         return None
-    return lambda source: parse_literal(source, value)
+    return lambda source: parse_keyword(source, value)
 
 # word() returns a function that takes source, and returns the first alphanumeric word
 def word():
@@ -132,7 +132,7 @@ def anyof(*parserFns):
         return None
     return lambda source: parse_anyof(source, *parserFns)
 
-# enum is a special case of anyof that takes a list of strings and matches literals
+# enum is a special case of anyof that takes a list of strings and matches keywords
 def enum(*values):
     def parse_enum(source: Source, *values):
         log(f"parse_enum({values}) on {source.text[source.start:source.end]}")
@@ -222,15 +222,15 @@ class Language:
     
 class Typescript(Language):
     def indent(self):
-        return literal("{")
+        return keyword("{")
     def undent(self):
-        return literal("}")
+        return keyword("}")
     def feature(self):
         return label("feature", 
-                      sequence(literal("feature"), 
+                      sequence(keyword("feature"), 
                         set("name", word()),
                         optional(sequence(
-                            literal("extends"),
+                            keyword("extends"),
                             set("parent", word()) )),
                         self.indent(),
                         set("components", list(self.component())), 
@@ -244,9 +244,9 @@ class Typescript(Language):
                         sequence(
                             optional(set("modifier", enum("const", "var"))),
                             set("name", word()),
-                            optional(sequence(literal(":"), 
+                            optional(sequence(keyword(":"), 
                                           set("type", word()))),
-                            optional(sequence(literal("="),
+                            optional(sequence(keyword("="),
                                           set("value", word()))),
                             optional(enum(";", ","))))
     
@@ -261,16 +261,16 @@ class Typescript(Language):
     def function(self):
         return label("function",
                      sequence(set("modifier", enum("on", "after", "before", "replace")),
-                                literal("("),
+                                keyword("("),
                                 set("resultName", word()),
-                                optional(sequence(literal(":"), 
+                                optional(sequence(keyword(":"), 
                                            set("resultType", word()))),
-                                literal(")"),
-                                literal("="),
+                                keyword(")"),
+                                keyword("="),
                                 set("name", word()),
-                                literal("("),
+                                keyword("("),
                                 set("parameters", list(self.variable())),
-                                literal(")"),
+                                keyword(")"),
                                 self.indent(),
                                 set("body", toUndent()),
                                 self.undent()))
