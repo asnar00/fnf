@@ -52,6 +52,6 @@ We can run this and get the console live in the code viewer (eventually) using t
 And we can also test the result against a known-correct value:
 
 ```ts
-> let x: number = 42
+> let x: number = 42;
 > hello() ==> x
 ```

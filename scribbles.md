@@ -1,13 +1,8 @@
 # scribbles
 
-what about multiple languages in the same file? 
-does that even make sense? I think not, for now.
-We could force the file to use ```lang notation but better maybe to not.
-If you do put that in there, then you're putting translation in the engine,
-which isn't sensible. But I guess potentially is if you're running a local LLM.
-
-I do think it's worth getting some kind of local LLM running fwiw.
-
+error reporting is now working! surprisingly smooth.
+still needs improvement in the optional bit; 
+if we've matched some of the optional bit, then we should report the error.
 ----
 
 Okay... with a bit of string and glue, I now capture test code as well.

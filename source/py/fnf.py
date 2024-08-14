@@ -258,9 +258,11 @@ def sequence(*parserFns: List):
 # optional(parserFn) calls parserFn, returns {} even if no match
 def optional(parserFn):
     def parse_optional(source: Source, parserFn):
+        skipWhitespace(source)
         result = parserFn(source)
         if err(result):
-            return {}
+            if result.source.start == source.start:
+                return {}
         return result
     return lambda source: parse_optional(source, parserFn)
 
@@ -376,9 +378,9 @@ def toUndent():
         return { "_val": source.file.code[source.start:], "_pos": pos }
     return lambda source: parse_toUndent(source)
 
-# toEnd() scans forward to next "," or ";" or "\n" outside of any braces/brackets/quotes;
+# toEnd() scans forward to next occurrence of any of [strs] outside of any braces/brackets/quotes;
 # only matches if len(match) > 0
-def toEnd():
+def toEnd(findChars: str = ",;\n)"):
     def parse_toEnd(source: Source):
         depth = 0
         inQuote = False
@@ -387,7 +389,7 @@ def toEnd():
         i = source.start
         while i < source.end:
             if not inQuote:
-                if depth == 0 and source.file.code[i] in ",;\n)":
+                if depth == 0 and source.file.code[i] in findChars:
                     match = source.file.code[source.start:i]
                     if len(match.strip()) == 0:
                         source.start = pos
@@ -485,7 +487,7 @@ class Typescript(Language):
     
     def test(self):
         return label("test", sequence(keyword(">"),
-                                set("code", toEnd())))
+                                set("code", toEnd("\n"))))
     
 #---------------------------------------------------------------------------------
 def testParser():
