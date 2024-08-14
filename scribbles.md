@@ -1,5 +1,64 @@
 # scribbles
 
+There's a sort of "top-level parse" where we look for simple forms:
+
+    feature SIG { STUFF }
+    on/after/before/replace SIG { STUFF }
+    local SIG;
+    struct SIG { STUFF }
+
+    and everything that doesn't match this gets collected up into a test fn.
+
+    If we can chuck around instances of Source like candy, which we can now that we've removed SourceMap etc from it, then we can do initial top-level parse like this:
+
+    label("feature", sequence(keyword("feature"),
+                              set("signature", toIndent()),
+                              set("body", nextBlock())))
+
+    label("function", sequence(
+                    set("modifier", option("on", "after", "before", "replace"))
+                    set("signature", toIndent()),
+                    set("body", nextBlock())))
+
+    label("local", sequence(...))
+
+    
+
+
+------
+
+tests: the real issue is that feature scope extends across the whole piece of code, so there's no "outside" - any code in the feature scope is a test.
+
+So really feature-scope is top-level, and we need to therefore take anything that doesn't pass the "component" test and funnel it to the test function.
+
+And this can include all kinds of code that might look like var-decl.
+
+    const test_str = "hello world"      => is that feature-scope or test code?
+    run_test(test_str) ==> (expected value)
+
+There's an obvious way to fix this, which is to include a new keyword to indicate a feature-scope variable. "var" ought to do it.
+
+Let's use the word
+
+    local
+
+as in
+
+    local folder = "/Users/..."
+
+That makes sense.
+
+----
+
+todonow:
+
+- separate sourcemap from source
+- think about tests and test code
+- return Error(x) instead of None
+- decide how to bubble those up from various.
+
+-----------------------------------
+
 ok, can't quite believe it but a sneaky all-nighter session has given us a brand new parser.
 this is super powerful and expressive, and can pretty much parse anything I feel like throwing at it, PROPERLY.
 
