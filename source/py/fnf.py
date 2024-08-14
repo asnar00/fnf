@@ -3,6 +3,8 @@
 # author: asnaroo
 # processes .fnf.*.md files => .* files
 # initially supporting ts, py, cpp
+# to auto-rerun this when this file or source mds change, use
+# (find source/fnf source/py -type f | entr -r python3 source/py/fnf.py)
 
 import os
 import re
