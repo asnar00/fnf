@@ -81,7 +81,6 @@ class SourceFile:
             log(f"no language for ext '{ext}'")
             exit(0)
         self.extractCode()
-        self.extractTests()
 
     # extract code from markdown text, set up sourcemap
     def extractCode(self):
@@ -106,10 +105,6 @@ class SourceFile:
                     self.sourceMap.append((len(self.code), i+1))
                     self.code += codeLine + "\n"
 
-    # extract tests from source code
-    def extractTests(self):
-        pass
-
     # maps character-index in source code to line/character in markdown file
     def sourceLine(self, iChar: int) -> Tuple[int, int]:
         for i in range(0, len(self.sourceMap)): # TODO: binary search
@@ -118,17 +113,22 @@ class SourceFile:
                 iCharOut = (iChar - self.sourceMap[i][0]) + 1
                 return iLine, iCharOut
         return -1, -1
+    
+    # show source file with source line numbers
+    def show(self):
+        lines = self.code.split("\n")
+        iChar = 0
+        for line in lines:
+            (iLine, iCharOut) = self.sourceLine(iChar)
+            log(f'{iLine}: {line}')
+            iChar += len(line) + 1
 
 def testSourceFile():
     log_enable()
     log("testExtractSource")
     sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    lines = sourceFile.code.split("\n")
-    iChar = 0
-    for line in lines:
-        (iLine, iCharOut) = sourceFile.sourceLine(iChar)
-        log(f'{iLine}: {line}')
-        iChar += len(line) + 1
+    sourceFile.show()
+    
 
 #---------------------------------------------------------------------------------
 # Source is a string, an index, and an end index; plus a sourceMap
@@ -141,15 +141,41 @@ class Source:
 
     def set(self, start: int, end: int =-1):
         self.start = start
-        self.end = end if end != -1 else len(self.code)
+        self.end = end if end != -1 else len(self.file.code)
 
     def __str__(self):
         return self.file.code[self.start:self.end]
     
-    def show(self):
-        out = self.file.code[self.start:self.start+16]
+    def show(self, nChars: int = 16):
+        out = self.file.code[self.start:self.start+nChars]
         out = out.replace("\n", "↩︎")
         return f"'{out}…'"
+
+#---------------------------------------------------------------------------------
+# Error is holds a message and a source location
+
+class Error:
+    def __init__(self, message: str, source: Source):
+        self.message = message
+        self.source = Source(source.file)
+        self.source.start = source.start
+
+    def __str__(self):
+        (iLine, iChar) = self.source.file.sourceLine(self.source.start)
+        return f"Error: {self.message} at {self.source.file.mdFile}:{iLine}:{iChar}\n       {self.source.show(32)}"
+
+def err(obj)->bool:
+    return obj==None or isinstance(obj, Error)
+
+def testError():
+    log_enable()
+    log("testError")
+    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
+    sourceFile.show()
+    source = Source(sourceFile)
+    source.set(50)
+    error = Error("test error", source)
+    log(error)
 
 #---------------------------------------------------------------------------------
 # parser combinators
@@ -175,7 +201,7 @@ def keyword(value: str):
             log(f" => matched")
             return {}
         log(f" => None")
-        return None
+        return Error(f"expected '{value}'", source)
     return lambda source: parse_keyword(source, value)
 
 # word() returns a function that takes source, and returns the first alphanumeric word
@@ -196,7 +222,7 @@ def word():
             source.start = i
             log(f" => '{word}'")
             return { "_val": word, "_pos": pos }
-        return None
+        return Error("expected word", source)
     return lambda source: parse_word(source)
 
 # set(varname, parserFn) just calls parserFn, and sets the result to varname
@@ -204,9 +230,9 @@ def set(varname: str, parserFn):
     def parse_set(varname: str, parserFn, source: Source):
         log_c(f"set({varname}): {source.show()}")
         result = parserFn(source)
-        if result is None:
-            log(f" => None")
-            return None
+        if err(result):
+            log(f" => err")
+            return result
         if isinstance(result, dict):        # comment this out for proper source-mapping
             result = result["_val"]         # but it makes it more readable for now
         log(f" => {result}")
@@ -220,9 +246,9 @@ def sequence(*parserFns: List):
         pos = source.start
         for parserFn in parserFns:
             singleResult = parserFn(source)
-            if singleResult is None:
+            if err(singleResult):
                 source.start = pos
-                return None
+                return singleResult
             else:
                 if isinstance(singleResult, dict) and "_val" not in singleResult:
                     result.update(singleResult)
@@ -233,7 +259,7 @@ def sequence(*parserFns: List):
 def optional(parserFn):
     def parse_optional(source: Source, parserFn):
         result = parserFn(source)
-        if result is None:
+        if err(result):
             return {}
         return result
     return lambda source: parse_optional(source, parserFn)
@@ -244,11 +270,11 @@ def anyof(*parserFns):
         pos = source.start
         for parserFn in parserFns:
             result = parserFn(source)
-            if result is not None:
+            if not err(result):
                 return result
             else:
                 source.start = pos
-        return None
+        return Error("anyof failed", source)
     return lambda source: parse_anyof(source, *parserFns)
 
 # enum is a special case of anyof that takes a list of strings and matches keywords
@@ -265,7 +291,7 @@ def enum(*values):
             else:
                 source.start = pos
         log(" => None")
-        return None
+        return Error(f"expected one of {values}", source)
     return lambda source: parse_enum(source, *values) 
 
 # and list(parserFn) returns a function that calls parse_list with the parserFn
@@ -280,7 +306,7 @@ def list(parserFn):
             pos = source.start
             result = parserFn(source)
             log("    result:", result)
-            if result is None:
+            if err(result):
                 source.start = pos
                 break
             results.append(result)
@@ -317,8 +343,8 @@ def label(type: str, parserFn):
         level += 1
         result = parserFn(source)
         level -= 1
-        if result is None:
-            return None
+        if err(result):
+            return result
         out.update(result)
         return out
     return lambda source: parse_label(type, parserFn, source)
@@ -365,7 +391,7 @@ def toEnd():
                     match = source.file.code[source.start:i]
                     if len(match.strip()) == 0:
                         source.start = pos
-                        return None
+                        return Error("empty toEnd() match", source)
                     source.start = i
                     log(f" => '{match.replace("\n", "↩︎")}'")
                     return { "_val": match, "_pos": pos }
@@ -379,10 +405,9 @@ def toEnd():
                 if source.file.code[i] == '"' and source.file.code[i-1] != "\\":
                     inQuote = False
             i += 1
-        log(f" HIT END OF FILE=> '{source.file.code[source.start:]}'"); 
         if source.start == source.end:
             source.start = pos
-            return None
+            return Error("empty toEnd() match at eof", source)
         return { "_val": source.file.code[source.start:], "_pos": pos }
     return lambda source: parse_toEnd(source)
 
@@ -408,7 +433,7 @@ class Typescript(Language):
                         )
     
     def component(self): 
-        return anyof(self.function(), self.struct(), self.local(), self.testCode())
+        return anyof(self.function(), self.struct(), self.local(), self.test())
     
     def local(self):
         return label("local",
@@ -458,9 +483,9 @@ class Typescript(Language):
                         set("body", toUndent()),
                         self.undent()))
     
-    def testCode(self):
-        return label("testCode",
-                     set("code", toEnd()))
+    def test(self):
+        return label("test", sequence(keyword(">"),
+                                set("code", toEnd())))
     
 #---------------------------------------------------------------------------------
 def testParser():
@@ -468,7 +493,7 @@ def testParser():
     sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
     log_enable()
     log("source: ------------------------------------")
-    log(sourceFile.code)
+    sourceFile.show()
     log("------------------------------------")
     log_disable()
     parse_feature = sourceFile.language.feature()
@@ -492,6 +517,7 @@ def writeTextFile(path: str, text: str):
 
 #---------------------------------------------------------------------------------
 def test():
+    #testError()
     #testSourceFile()
     testParser()
 

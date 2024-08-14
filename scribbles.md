@@ -1,28 +1,31 @@
 # scribbles
 
-There's a sort of "top-level parse" where we look for simple forms:
+what about multiple languages in the same file? 
+does that even make sense? I think not, for now.
+We could force the file to use ```lang notation but better maybe to not.
+If you do put that in there, then you're putting translation in the engine,
+which isn't sensible. But I guess potentially is if you're running a local LLM.
 
-    feature SIG { STUFF }
-    on/after/before/replace SIG { STUFF }
-    local SIG;
-    struct SIG { STUFF }
+I do think it's worth getting some kind of local LLM running fwiw.
 
-    and everything that doesn't match this gets collected up into a test fn.
+----
 
-    If we can chuck around instances of Source like candy, which we can now that we've removed SourceMap etc from it, then we can do initial top-level parse like this:
+Okay... with a bit of string and glue, I now capture test code as well.
+Next is ERROR REPORTING. Quite important.
+and then a proper parser debugging scheme. Also important.
+Something something decorators again. These keep coming up.
+Indent preprocessing for significant-whitespace eg. python.
 
-    label("feature", sequence(keyword("feature"),
-                              set("signature", toIndent()),
-                              set("body", nextBlock())))
 
-    label("function", sequence(
-                    set("modifier", option("on", "after", "before", "replace"))
-                    set("signature", toIndent()),
-                    set("body", nextBlock())))
+Side project: use the parser functions to print things out properly.
+Can we like process the function chain to print things as well?
 
-    label("local", sequence(...))
+    def parse_thingy(params, source) -> dict: ...
+    def print_thingy(params, dict) -> source ...
 
-    
+I think it's quite important to maintain the python pathway as well.
+
+
 
 
 ------

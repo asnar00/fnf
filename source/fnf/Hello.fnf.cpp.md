@@ -1,16 +1,21 @@
 ᕦ(ツ)ᕤ
+
 # Hello
 
-This is a small program expressed in *feature normal C++* that prints "hello world" to the console.
+This is a small program expressed in _feature normal C++_ that prints "hello world" to the console.
 
-    feature Hello extends Feature {
+```cpp
+feature Hello extends Feature {
+```
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
 
-    def number hello(string name) {
-        output("hey what's up {name}");
-        return 42;
-    }
+```cpp
+def number hello(string name) {
+    output("hey what's up {name}");
+    return 42;
+}
+```
 
 The `def` keyword means that we're defining a new function called `hello`; if there's already one defined with that name, we get an error.
 
@@ -24,22 +29,28 @@ def output(string msg, int indent =0) {
 
 Let's define a little structure as well:
 
-    struct Colour { 
-        int red = 0; 
-        int green = 0; 
-        int blue = 0;
-    }
+```cpp
+struct Colour { 
+    int red = 0; 
+    int green = 0; 
+    int blue = 0;
+}
+```
 
 And we can also define feature-scoped variables like this:
 
-    Colour my_colour = Colour(1, 2, 3);
+```cpp
+Colour my_colour = Colour(1, 2, 3);
+```
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
-    hello() ==> 
+```cpp
+> hello() ==> 
+```
 
 And we can also test the result against a known-correct value:
 
-    hello() ==> 42
-
-
+```cpp
+> hello() ==> 42
+```

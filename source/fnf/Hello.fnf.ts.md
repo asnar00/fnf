@@ -1,16 +1,21 @@
 ᕦ(ツ)ᕤ
+
 # Hello
 
-This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
+This is a small program expressed in _feature normal typescript_ that prints "hello world" to the console.
 
-    feature Hello extends Feature {
+```ts
+feature Hello extends Feature {
+```
 
 And here's the function that does the work; we're returning a number just to show how the code looks. We're using the "named result" pattern for various reasons (mainly because it helps make code more composable).
 
-    on (r: number) = hello(name: string) {
-        output(`hey what's up ${name}`);
-        r = 42;
-    }
+```ts
+on (r: number) = hello(name: string) {
+    output(`hey what's up ${name}`);
+    r = 42;
+}
+```
 
 The `def` keyword means that we're defining a new function called `hello`; if there's already one defined with that name, we get an error.
 
@@ -24,20 +29,29 @@ on output(msg: string, indent: number=0) {
 
 Let's define a little structure as well:
 
-    struct Colour { 
-        red : number = 0; 
-        green: number = 0; 
-        blue: number = 0; 
-    }
+```ts
+struct Colour { 
+    red : number = 0; 
+    green: number = 0; 
+    blue: number = 0; 
+}
+```
 
 And we can also define feature-scoped variables like this:
 
-    local my_colour : Colour = new Colour(1, 2, 3);
+```ts
+local my_colour : Colour = new Colour(1, 2, 3);
+```
 
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
-    hello() ==> 
+```ts
+> hello() ==> 
+```
 
 And we can also test the result against a known-correct value:
 
-    hello() ==> 42
+```ts
+> let x: number = 42
+> hello() ==> x
+```
