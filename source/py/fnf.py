@@ -308,16 +308,13 @@ def label(type: str, parserFn):
         skipWhitespace(source)
         global level
         toShow = f"{'  ' * level}label({type}): {source.show()}"
-        log_enable()
+        #log_enable()
         log(toShow)
-        log_disable()
+        #log_disable()
         out = { "_type": type }
         level += 1
         result = parserFn(source)
         level -= 1
-        log_enable()
-        log(f"{'  ' * level}{'NOPE' if result is None else 'YEP'}")
-        log_disable()
         if result is None:
             return None
         out.update(result)
