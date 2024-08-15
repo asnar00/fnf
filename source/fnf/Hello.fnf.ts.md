@@ -22,7 +22,7 @@ We define our own function `output` that initially outputs to standard console, 
 
 ```ts
 on output(msg: string, indent: number=0) {
-    console.log(msg);
+    console.log(" ".repeat(indent) + msg);
 }
 ```
 
