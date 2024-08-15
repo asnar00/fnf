@@ -458,6 +458,7 @@ class Typescript(Language):
         return label("local",
                     sequence(
                         keyword("local"),
+                        optional(set("modifier", enum("const", "var"))),
                         set("name", word()),
                         optional(sequence(keyword(":"), 
                                         set("type", word()))),
@@ -534,7 +535,9 @@ class Typescript(Language):
         out.pushLine("    }")
 
     def output_variable(self, out: SourceFile, var: dict):
-        decl = f'    var {var["name"]}'
+        decl = "    "
+        decl += f'{var["modifier"]} ' if "modifier" in var else "var "
+        decl += f'{var["name"]}'
         decl += f' : {var["type"]}' if "type" in var else ""
         decl += f' = {var["value"]};' if "value" in var else ";"
         out.pushLine(decl, var["name"].line())
