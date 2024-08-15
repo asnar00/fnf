@@ -571,7 +571,7 @@ class Typescript(Language):
 
         for i, fn in enumerate(functions):
             feature = fn["_feature"]
-            decl = f'        const {feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
+            decl = f'        const _{feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
             out.pushLine(decl, fn["name"].line())
             body = fn["body"]
             lines = body.file.code[body.start:body.end].split("\n")
@@ -583,9 +583,9 @@ class Typescript(Language):
 
         call = ""
         if resultType == "void":
-            call = f'        {feature}_{fnName}({paramCallStr(fn)});'
+            call = f'        _{feature}_{fnName}({paramCallStr(fn)});'
         else:
-            call = f'        _result = {feature}_{fnName}({paramCallStr(fn)});'
+            call = f'        _result = _{feature}_{fnName}({paramCallStr(fn)});'
 
         out.pushLine(call)
         
@@ -602,7 +602,7 @@ class Typescript(Language):
                 if component["_type"] == "test":
                     tests.append(component)
             if len(tests) == 0: continue
-            out.pushLine(f'        const {feature["name"]}_test = () => {{')
+            out.pushLine(f'        const _{feature["name"]}_test = () => {{')
             
             if "_mdFile" in feature:
                 out.pushLine(f'            _source("{feature["_mdFile"]}");')
@@ -620,7 +620,7 @@ class Typescript(Language):
                     out.pushLine(f'            {testCode}', testLine)
             out.pushLine(f'        }};')
         for feature in features:
-            out.pushLine(f'        try {{ {feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')
+            out.pushLine(f'        try {{ _{feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')
 
         out.pushLine(f'    }}')
 
