@@ -51,6 +51,11 @@ class Language:
     def variable(self): pass
     def struct(self): pass
     def function(self): pass
+    def output_openContext(self, name: str) -> str: pass
+    def output_openContext(self) -> str: pass
+    def output_struct(self, struct: dict) -> str: pass
+    def output_variable(self, var: dict): pass
+    def output_function(self, function: List[dict]): pass
 
 def findLanguage(ext: str) -> Language:
     for subclass in Language.__subclasses__():
@@ -81,6 +86,11 @@ class SourceFile:
             log(f"no language for ext '{ext}'")
             exit(0)
         self.extractCode()
+
+    # parse the code using the language's feature parser
+    def parse(self):
+        source = Source(self)
+        return self.language.feature()(source)
 
     # extract code from markdown text, set up sourcemap
     def extractCode(self):
@@ -471,16 +481,12 @@ class Typescript(Language):
         return label("function",
                     sequence(
                         set("modifier", enum("on", "after", "before", "replace")),
-                        optional(sequence(keyword("("),
-                            set("resultName", word()),
-                            optional(sequence(keyword(":"), 
-                                        set("resultType", word()))),
-                            keyword(")"),
-                            keyword("="))),
                         set("name", word()),
                         keyword("("),
                         set("parameters", list(self.variable())),
                         keyword(")"),
+                        optional(sequence(keyword(":"), 
+                                        set("returnType", word()))),
                         self.indent(),
                         set("body", toUndent()),
                         self.undent()))
@@ -489,18 +495,63 @@ class Typescript(Language):
         return label("test", sequence(keyword(">"),
                                 set("code", toEnd("\n"))))
     
+    #---------------------------------------------------------------------------------
+    # output code ... eventually should just use the parser stuff above !
+    
+    def output_openContext(self, name: str) -> str:
+        return f"export namespace {name} {{"
+    
+    def output_closeContext(self) -> str:
+        return "}"
+    
+    def output_struct(self, struct: dict) -> str:
+        out = "    class " + struct["name"] + " {\n"
+        for prop in struct["properties"]:
+            out += "        " + prop["name"]
+            if "type" in prop:
+                out += ": " + prop["type"]
+            if "value" in prop:
+                out += " = " + prop["value"]
+            out += ";\n"
+        out += "        constructor("
+        for i, prop in enumerate(struct["properties"]):
+            out += prop["name"]
+            if "type" in prop:
+                out += ": " + prop["type"]
+            if "value" in prop:
+                out += " = " + prop["value"]
+            if i < len(struct["properties"])-1:
+                out += ", "
+        out += ") {\n"
+        for prop in struct["properties"]:
+            out += "            this." + prop["name"] + " = " + prop["name"] + ";\n"
+        out += "        }\n"
+        out += "    }"
+        return out
+
+    def output_variable(self, var: dict):
+        out = "static "
+        out += var["name"]
+        if "type" in var:
+            out += var["type"] + " "
+        if "value" in var:
+            out += " = " + var["value"] + ";"
+        return out
+    
+    def output_function(self, fn: List[dict]):
+        return ""
+
+    
 #---------------------------------------------------------------------------------
 def testParser():
-    ts = Typescript()
     sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
     log_enable()
+    log("testParser")
     log("source: ------------------------------------")
     sourceFile.show()
-    log("------------------------------------")
+    log("---------------------------------------------")
     log_disable()
-    parse_feature = sourceFile.language.feature()
-    source = Source(sourceFile)
-    result = parse_feature(source)
+    result = sourceFile.parse()
     log_enable()
     log("result:", result)
 
@@ -518,10 +569,81 @@ def writeTextFile(path: str, text: str):
         file.write(text)
 
 #---------------------------------------------------------------------------------
+# code generation
+
+def extendFunction(oldFn: dict, newFn: dict) -> dict:
+    return newFn
+
+def generateCode(contextName: str, features: List[dict], language: Language):
+    vars = {}   # map name => dict
+    structs = {}  # map name => dict
+    functions = {}  # map name => List[dict]
+
+    # first put everything together
+    for feature in features:
+        for component in feature["components"]:
+            if component["_type"] == "test":
+                continue
+            name = component["name"]
+            if component["_type"] == "local":
+                vars[name] = component
+            elif component["_type"] == "struct":
+                if not name in structs:
+                    structs[name] = component
+                else:
+                    structs[name].properties.extend(component.properties)
+            elif component["_type"] == "function":
+                if not name in functions:
+                    functions[name] = [component]
+                else:
+                    functions[name].append(component)
+
+    out = ""
+    # then output a namespace for the context
+    out += language.output_openContext("Context_" + contextName) + "\n"
+
+    log("\nstructs:")
+    for name, struct in structs.items():
+        print(f"  {name}: {struct}")
+        out += language.output_struct(struct) + "\n"
+
+    log("vars:")
+    for name, var in vars.items():
+        print(f"  {name}: {var}")
+        out += "    " + language.output_variable(var) + "\n"
+    log("\nfunctions:")
+    for name, fnList in functions.items():
+        print(f"  {name}: {fnList}\n")
+
+    out+= language.output_closeContext() + "\n"
+    log("---------------------------------------------")
+    log("generated code:")
+    log(out)
+
+def testCodeGeneration():
+    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
+    result = sourceFile.parse()
+    log_enable()
+    log("testCodeGeneration")
+    log("source: ------------------------------------")
+    sourceFile.show()
+    log("---------------------------------------------")
+    log_disable()
+    result = sourceFile.parse()
+    log_enable()
+    log("result:", result)
+    if err(result):
+        return
+    log("---------------------------------------------")
+    generateCode("test", [result], sourceFile.language)
+
+
+#---------------------------------------------------------------------------------
 def test():
     #testError()
     #testSourceFile()
-    testParser()
+    #testParser()
+    testCodeGeneration()
 
 if __name__ == "__main__":
     clear_console()

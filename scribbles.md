@@ -1,5 +1,52 @@
 # scribbles
 
+we need to rethink how the source-map thing works.
+I think the best way is to actually capture a Source there.
+that way we can access the sourcemap nicely.
+ok, let's do that.
+
+-----
+composite function building:
+
+Hello.md:
+
+```ts
+on hello(name: string) : number {
+    output(`hey what's up ${name}`);
+    return 42;
+}
+```
+
+Goodbye.md:
+
+```ts
+after hello(name: string) : number { 
+    goodbye();
+    return _result + 1;
+}
+```
+
+For which the composite function should be:
+
+```ts
+    function hello(name: string) : number {
+        var _result: number;
+        _result = ((name: string):number => {   // feature "Hello"
+            output(...);
+            return 42;
+        })(name);
+        _result = ((name: string) : number => { // feature "Goodbye"
+            goodbye();
+            return _result + 1;
+        })(name);
+        return _result;
+    }
+```
+
+so just write code that does this efficiently... not so hard.
+
+--------------
+
 error reporting is now working! surprisingly smooth.
 still needs improvement in the optional bit; 
 if we've matched some of the optional bit, then we should report the error.

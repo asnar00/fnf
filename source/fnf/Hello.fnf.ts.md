@@ -1,8 +1,7 @@
 ᕦ(ツ)ᕤ
-
 # Hello
 
-This is a small program expressed in _feature normal typescript_ that prints "hello world" to the console.
+This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
 
 ```ts
 feature Hello extends Feature {
@@ -11,9 +10,9 @@ feature Hello extends Feature {
 And here's the function that does the work; we're returning a number just to show how the code looks. We're using the "named result" pattern for various reasons (mainly because it helps make code more composable).
 
 ```ts
-on (r: number) = hello(name: string) {
+on hello(name: string) : number {
     output(`hey what's up ${name}`);
-    r = 42;
+    return 42;
 }
 ```
 
