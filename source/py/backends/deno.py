@@ -130,7 +130,8 @@ class Deno(Backend):
         log(f"Deno project initialized in {project_path}")
 
     def preamble(self) -> str:
-        return """var _file = "";
+        return """
+var _file = "";
 function _source(file: string) { _file = file; }
 function _output(value: any, line: number) { console.log(`${_file}:${line}: {value}`); }
 function _assert(lhs: any, rhs: any, line: number) { if (lhs !== rhs) console.log(`${_file}:${line}: ${lhs}`); else console.log(`${file}:${line}: OK`); }"""
@@ -138,10 +139,9 @@ function _assert(lhs: any, rhs: any, line: number) { if (lhs !== rhs) console.lo
     def postamble(self, context: str) -> str:
         return f"""
 function main() {{
-    args = Deno_args();
-    if ("-test" in args) {{
+    if ("-test" in Deno.args) {{
         console.log(f"testing {context}...");
-        {context}_test();
+        {context}._test();
         return;
     }}
 }}
