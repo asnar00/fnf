@@ -1,5 +1,33 @@
 # scribbles
 
+
+So we could totally store this stuff in markdown but you need a special viewer. Which we do anyway. So a vscode plugin is probably a good idea, but it has to be typescript/web anyway.
+
+--------
+
+code generation with proper source-line mapping works, thanks to separating Source from SourceFile!
+
+        def feature(self):
+            return label("feature", 
+                      sequence(keyword("feature"), 
+                        set("name", word()),
+                        optional(sequence(
+                            keyword("extends"),
+                            set("parent", word()) )),
+                        self.indent(),
+                        set("components", list(self.component())), 
+                        self.undent())
+                        )
+
+Think of how you'd do this:
+
+    def keyword(value: str):
+        def print_keyword(value: str, out: SourceFile):
+            out.push(value)
+        return lambda dict, out: print_keyword(value, out)
+
+
+-------
 we need to rethink how the source-map thing works.
 I think the best way is to actually capture a Source there.
 that way we can access the sourcemap nicely.

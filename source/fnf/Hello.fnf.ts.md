@@ -7,7 +7,7 @@ This is a small program expressed in *feature normal typescript* that prints "he
 feature Hello extends Feature {
 ```
 
-And here's the function that does the work; we're returning a number just to show how the code looks. We're using the "named result" pattern for various reasons (mainly because it helps make code more composable).
+And here's the function that does the work; we're returning a number just to show how the code looks. 
 
 ```ts
 on hello(name: string) : number {
@@ -16,7 +16,7 @@ on hello(name: string) : number {
 }
 ```
 
-The `def` keyword means that we're defining a new function called `hello`; if there's already one defined with that name, we get an error.
+The `on` keyword means that we're defining a new function called `hello`.
 
 We define our own function `output` that initially outputs to standard console, but eventually can also print stuff in the browser, or anywhere else we like. That's the magic of features!
 
