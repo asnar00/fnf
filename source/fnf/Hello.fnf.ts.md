@@ -7,7 +7,7 @@ This is a small program expressed in *feature normal typescript* that prints "he
 feature Hello extends Feature {
 ```
 
-And here's the function that does the work; we're returning a number just to show how the code looks. 
+And here's the function that does the work; we're returning a number just to show how the code looks.
 
 ```ts
 on hello(name: string) : number {
@@ -18,7 +18,7 @@ on hello(name: string) : number {
 
 The `on` keyword means that we're defining a new function called `hello`.
 
-We define our own function `output` that initially outputs to standard console, but eventually can also print stuff in the browser, or anywhere else we like. That's the magic of features!
+We define our own function `output` that initially outputs to standard console. Later, we'll look at getting this same function to output to the browser.
 
 ```ts
 on output(msg: string, indent: number=0) {
