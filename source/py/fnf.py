@@ -144,15 +144,15 @@ def testCodeGeneration():
 
 #---------------------------------------------------------------------------------
 
-def testBackendSetup():
+def testBackend():
     log_enable()
-    log("testBackendSetup")
+    log("testBackend")
     backend = Deno()
     #backend.ensure_latest_version()
     #backend.setup("build/deno/test")
     log("running main.ts")
     output = backend.run("build/deno/test/main.ts")
-    log("output ------------------------------------")
+    log("---------------------------------------------")
     log(output)
     log("---------------------------------------------")
     pass
@@ -162,8 +162,8 @@ def test():
     #testError()
     #testSourceFile()
     #testParser()
-    #testCodeGeneration()
-    testBackendSetup()
+    testCodeGeneration()
+    #testBackend()
 
 if __name__ == "__main__":
     clear_console()
