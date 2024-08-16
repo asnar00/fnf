@@ -2,6 +2,8 @@
 # scribbles
 
 
+-------------------------------
+
 So we could totally store this stuff in markdown but you need a special viewer. Which we do anyway. So a vscode plugin is probably a good idea, but it has to be typescript/web anyway.
 
 --------

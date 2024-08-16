@@ -129,6 +129,24 @@ class Deno(Backend):
             json.dump(import_map, f, indent=2)
         log(f"Deno project initialized in {project_path}")
 
+    def preamble(self) -> str:
+        return """var _file = "";
+function _source(file: string) { _file = file; }
+function _output(value: any, line: number) { console.log(`${_file}:${line}: {value}`); }
+function _assert(lhs: any, rhs: any, line: number) { if (lhs !== rhs) console.log(`${_file}:${line}: ${lhs}`); else console.log(`${file}:${line}: OK`); }"""
+    
+    def postamble(self, context: str) -> str:
+        return f"""
+function main() {{
+    args = Deno_args();
+    if ("-test" in args) {{
+        console.log(f"testing {context}...");
+        {context}_test();
+        return;
+    }}
+}}
+        """
+
     def run(self, filename: str, options: List[str]=[])->str:
         if not os.path.exists(filename):
             return f"Error: File not found: {filename}", ""
