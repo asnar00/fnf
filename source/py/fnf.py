@@ -30,6 +30,7 @@ from typing import Tuple
 
 from util import *
 from languages import Language, Typescript
+from backends import Backend, Deno
 
 #---------------------------------------------------------------------------------
 
@@ -142,11 +143,21 @@ def testCodeGeneration():
     outFile = generateCode("mycontext", [result], language)
 
 #---------------------------------------------------------------------------------
+
+def testBackendSetup():
+    log_enable()
+    log("testBackendSetup")
+    backend = Deno()
+    backend.setup("build/deno/test")
+    pass
+
+#---------------------------------------------------------------------------------
 def test():
     #testError()
     #testSourceFile()
     #testParser()
-    testCodeGeneration()
+    #testCodeGeneration()
+    testBackendSetup()
 
 if __name__ == "__main__":
     clear_console()
