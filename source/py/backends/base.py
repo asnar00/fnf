@@ -12,3 +12,4 @@ class Backend:
     def install_latest_version(self): pass
     def ensure_latest_version(self) -> bool: pass
     def setup(self, project_path: str): pass
+    def run(self, filename: str, options: List[str] =[]) ->str : pass

@@ -148,8 +148,13 @@ def testBackendSetup():
     log_enable()
     log("testBackendSetup")
     backend = Deno()
-    backend.ensure_latest_version()
-    backend.setup("build/deno/test")
+    #backend.ensure_latest_version()
+    #backend.setup("build/deno/test")
+    log("running main.ts")
+    output = backend.run("build/deno/test/main.ts")
+    log("output ------------------------------------")
+    log(output)
+    log("---------------------------------------------")
     pass
 
 #---------------------------------------------------------------------------------

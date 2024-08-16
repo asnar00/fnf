@@ -34,7 +34,6 @@ class Deno(Backend):
                     result = subprocess.run([deno_bin, "--version"], check=True, capture_output=True, text=True)
                 else:
                     return None
-
             version_output = result.stdout
             version_match = re.search(r"deno (\d+\.\d+\.\d+)", version_output)
             if version_match:
@@ -56,17 +55,14 @@ class Deno(Backend):
     def install_latest_version(self):
         try:
             log("Starting Deno installation...")
-            
             # Using curl to download and run the Deno installer
             install_command = "curl -fsSL https://deno.land/x/install/install.sh | sh"
             result = subprocess.run(install_command, shell=True, check=True, capture_output=True, text=True)
             log("Installer output:")
             log(result.stdout)
-            
             # Update PATH
             deno_path = os.path.expanduser("~/.deno/bin")
             update_PATH(deno_path)
-            
             log("Deno installation completed and PATH updated.")
             return True
         except subprocess.CalledProcessError as e:
@@ -91,30 +87,64 @@ class Deno(Backend):
     def setup(self, project_path: str):
         # Create the project directory if it doesn't exist
         os.makedirs(project_path, exist_ok=True)
-
         # Change to the project directory
         os.chdir(project_path)
-
         # Create main.ts file
         with open('main.ts', 'w') as f:
             f.write('console.log("Hello, Deno!");')
-
         # Create deno.json configuration file
         deno_config = {
-            "tasks": {
-                "start": "deno run --allow-net main.ts"
+            "compilerOptions": {
+                "allowJs": True,
+                "lib": ["deno.window"]
             },
-            "importMap": "import_map.json"
+            "lint": {
+                "files": {
+                    "include": ["src/"]
+                },
+                "rules": {
+                    "tags": ["recommended"]
+                }
+            },
+            "fmt": {
+                "files": {
+                    "include": ["src/"]
+                },
+                "options": {
+                    "useTabs": False,
+                    "lineWidth": 80,
+                    "indentWidth": 2,
+                    "singleQuote": True,
+                    "proseWrap": "always"
+                }
+            }
         }
         with open('deno.json', 'w') as f:
             json.dump(deno_config, f, indent=2)
-
         # Create import_map.json file
         import_map = {
             "imports": {}
         }
         with open('import_map.json', 'w') as f:
             json.dump(import_map, f, indent=2)
-
         log(f"Deno project initialized in {project_path}")
+
+    def run(self, filename: str, options: List[str]=[])->str:
+        if not os.path.exists(filename):
+            return f"Error: File not found: {filename}", ""
+        try:
+            # Run the Deno file
+            result = subprocess.run(['deno', 'run', '--allow-all', filename, *options], 
+                                    capture_output=True,
+                                    text=True,
+                                    check=True)
+            if result.stderr:
+                return result.stderr.strip()
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            return e.stderr.strip()
+        except FileNotFoundError:
+            return "Error: Deno is not installed or not in the system PATH.", ""
+        except Exception as e:
+            return f"An unexpected error occurred: {str(e)}", ""
 
