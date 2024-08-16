@@ -148,6 +148,7 @@ def testBackendSetup():
     log_enable()
     log("testBackendSetup")
     backend = Deno()
+    backend.ensure_latest_version()
     backend.setup("build/deno/test")
     pass
 

@@ -7,6 +7,7 @@
 import os
 import re
 import json
+import subprocess
 from typing import List
 from typing import Tuple
 
@@ -47,6 +48,45 @@ def writeTextFile(path: str, text: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
         file.write(text)
+
+#---------------------------------------------------------------------------------
+# shell / config stuff for installing things
+
+# returns the correct shell config file path depending on the shell in use
+def get_shell_config_file():
+    shell = os.environ.get('SHELL', '')
+    home = os.path.expanduser('~')
+    if 'zsh' in shell:
+        return os.path.join(home, '.zshrc')
+    elif 'bash' in shell:
+        return os.path.join(home, '.bash_profile')
+    else:
+        return os.path.join(home, '.profile')
+
+# ensures that new_path is added to the PATH variable
+def update_PATH(new_path):
+    shell_config = get_shell_config_file()
+    path_entry = f'export PATH="{new_path}:$PATH"'
+    
+    # Check if path already exists in the file
+    with open(shell_config, "r") as f:
+        content = f.read()
+        if new_path in content:
+            log(f"PATH entry for {new_path} already exists in {shell_config}")
+            return
+
+    # If not, append it to the file
+    with open(shell_config, "a") as f:
+        f.write(f'\n{path_entry}\n')
+    
+    log(f"Updated {shell_config} with new PATH entry: {new_path}")
+
+    # Source the shell configuration file
+    source_command = f"source {shell_config}"
+    subprocess.run(source_command, shell=True, executable="/bin/bash")
+    
+    # Update current environment
+    os.environ["PATH"] = f"{new_path}:{os.environ['PATH']}"
 
 #---------------------------------------------------------------------------------
 # SourceFile holds filename, sourcemap, does extraction/initial processing
