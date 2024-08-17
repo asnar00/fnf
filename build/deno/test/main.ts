@@ -41,7 +41,7 @@ namespace mycontext {
     export function _test() {
         const _Hello_test = () => {
             _output(hello("world"), "source/fnf/Hello.fnf.ts.md:48:2");
-             let x: number = 45;
+            let x: number = 45;
             _assert(hello("asnaroo"), x, "source/fnf/Hello.fnf.ts.md:55:2");
         };
         try { _Hello_test(); } catch (e) { console.error(e); }

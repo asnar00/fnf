@@ -153,7 +153,7 @@ class Typescript(Language):
             if lines[-1]=="": lines.pop()
             bodyLocation = body.sourceLocation()
             for i, line in enumerate(lines):
-                out.pushLine(f'            {line}', SourceLocation(bodyLocation.filename, bodyLocation.lineIndex + i))
+                out.pushLine(f'            {line}', SourceLocation(bodyLocation.path, bodyLocation.lineIndex + i))
             out.pushLine(f'        }};')
 
         call = ""
@@ -189,7 +189,7 @@ class Typescript(Language):
                     else:
                         out.pushLine(f'            _assert({lhs}, {rhs}, "{loc}");', loc)
                 else:
-                    out.pushLine(f'            {code}', loc)
+                    out.pushLine(f'            {code.strip()}', loc)
             out.pushLine(f'        }};')
         for feature in features:
             out.pushLine(f'        try {{ _{feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')

@@ -73,15 +73,11 @@ def testParser():
 def parseFeature(mdFilename: str, language: Language) -> dict | Error:
     sourceFile = SourceFile()
     sourceFile.loadMarkdown(mdFilename)
-    log_enable()
-    sourceFile.show()
-    log_disable()
     parser = language.feature()
     source = Source(sourceFile)
     result = parser(source)
     return result
     
-
 # given a list of parsed features, return source code for the chosen language/backend
 def generateCode(contextName: str, features: List[dict], language: Language, backend: Backend) -> SourceFile:
     out = SourceFile()
@@ -129,17 +125,17 @@ def generateCode(contextName: str, features: List[dict], language: Language, bac
 
     log("structs:")
     for name, struct in structs.items():
-        print(f"  {name}: {struct}")
+        log(f"  {name}: {struct}")
         language.output_struct(out, struct)
 
     log("\nvars:")
     for name, var in vars.items():
-        print(f"  {name}: {var}")
+        log(f"  {name}: {var}")
         language.output_variable(out, var)
 
     log("\nfunctions:")
     for name, fnList in functions.items():
-        print(f"  {name}: {fnList}\n")
+        log(f"  {name}: {fnList}\n")
         language.output_function(out, name, fnList)
 
     language.output_tests(out, features)
@@ -174,7 +170,34 @@ def testCodeGeneration():
 
 #---------------------------------------------------------------------------------
 
+def processLog(output: str, outFile: SourceFile) -> str:
+    log("processLog")
+    starts = outFile.lineStarts()
+    def map_function(file, line, char):
+        iChar = starts[int(line)-1]
+        location = outFile.sourceLocation(iChar)
+        if location == None:
+            return f"file://{file}:{line}:{char}"
+        return str(location)
+    def replace_callback(match):
+        file, line, char = match.groups()
+        return map_function(file, line, char)
+    # Assuming 'content' contains your file contents
+    pattern = r'file://([^:]+):(\d+):(\d+)'
+    new_content = re.sub(pattern, replace_callback, output)
+    log(new_content)
+
 def testBackend():
+    mdFilename = "source/fnf/Hello.fnf.ts.md"
+    language = Typescript()
+    backend = Deno()
+    feature = parseFeature(mdFilename, language)
+    if err(feature): 
+        log_enable()
+        log(feature)
+        return
+    outFile = generateCode("mycontext", [feature], language, backend)
+    writeTextFile("build/deno/test/main.ts", outFile.code)
     log_enable()
     log("testBackend")
     backend = Deno()
@@ -182,17 +205,15 @@ def testBackend():
     #backend.setup("build/deno/test")
     log("running main.ts")
     output = backend.run("build/deno/test/main.ts", ["-test"])
-    log("---------------------------------------------")
-    log(output)
-    log("---------------------------------------------")
-    pass 
+    log("output after processing -----------------------")
+    output = processLog(output, outFile)
 
 #---------------------------------------------------------------------------------
 def test():
     #testError()
     #testSourceFile()
     #testParser()
-    testCodeGeneration()
+    #testCodeGeneration()
     testBackend()
 
 if __name__ == "__main__":

@@ -89,16 +89,29 @@ def update_PATH(new_path):
     os.environ["PATH"] = f"{new_path}:{os.environ['PATH']}"
 
 #---------------------------------------------------------------------------------
+# SourcePath just contains a filename: to avoid massive string copying nonsense
+
+class SourcePath:
+    def __init__(self, filename: str):
+        self.filename = filename
+
+    def __str__(self):
+        return self.filename
+
+    def __repr__(self):
+        return self.__str__()
+    
+#---------------------------------------------------------------------------------
 # SourceLocation is a triple (filename, lineIndex, charInLine)
 
 class SourceLocation:
-    def __init__(self, filename: str, lineIndex: int, charInLine: int=0):
-        self.filename = filename
+    def __init__(self, path: SourcePath, lineIndex: int, charInLine: int=0):
+        self.path = path
         self.lineIndex = lineIndex
         self.charInLine = charInLine
 
     def __str__(self):
-        out = f"{self.filename}:{self.lineIndex}"
+        out = f"{self.path}:{self.lineIndex}"
         if self.charInLine > 1:
             out += f":{self.charInLine}"
         return out
@@ -114,17 +127,16 @@ class SourceFile:
         self.text = ""                  # original file text
         self.code = ""                  # extracted code    
         self.filenames = []             # list of filenames for source map    
-        self.sourceMap = []             # list of triples: (charIndex, SourceLocation)
+        self.sourceMap = []             # list of (charIndex, SourceMap) pairs
         
     # load markdown file, figure out language, extract code
     def loadMarkdown(self, mdFile: str):
         self.text = readTextFile(mdFile)
-        ext = mdFile.split(".")[2]      # => "ts"
-        log("ext:", ext)
         self.extractCode(mdFile)
 
-    # extract code from markdown text, set up sourcemap
+    # extract code from markdown text, set up source-map
     def extractCode(self, mdFile: str):
+        path = SourcePath(mdFile)
         self.code = ""
         lines = self.text.split("\n")
         inCodeBlock = False
@@ -133,7 +145,7 @@ class SourceFile:
             if not inCodeBlock:
                 if line.startswith("    "):
                     codeLine = line[4:].rstrip()
-                    self.pushLine(codeLine, SourceLocation(mdFile, i+1))
+                    self.pushLine(codeLine, SourceLocation(path, i+1))
                 else:
                     if line.startswith("```"):
                         inCodeBlock = True
@@ -142,7 +154,7 @@ class SourceFile:
                     inCodeBlock = False
                 else:
                     codeLine = line.rstrip()
-                    self.pushLine(codeLine, SourceLocation(mdFile, i+1))
+                    self.pushLine(codeLine, SourceLocation(path, i+1))
 
     # pushes a code line and source code line-index
     def pushLine(self, codeLine: str, location: SourceLocation = None):
@@ -156,8 +168,16 @@ class SourceFile:
                 loc = self.sourceMap[i][1]
                 if loc == None: return None
                 iCharOut = (iChar - self.sourceMap[i][0])+1
-                return SourceLocation(loc.filename, loc.lineIndex, iCharOut)
+                return SourceLocation(loc.path, loc.lineIndex, iCharOut)
         return None
+    
+    # returns an array of character-indices for the start of each line
+    def lineStarts(self) -> List[int]:
+        starts = [0]
+        for i, c in enumerate(self.code):
+            if c == "\n":
+                starts.append(i+1)
+        return starts
     
     # show source file with source line numbers
     def show(self):
@@ -169,12 +189,12 @@ class SourceFile:
         for line in lines:
             location = self.sourceLocation(iChar)
             if location != None: maxLocLen = max(maxLocLen, len(str(location)))
-            iChar += len(line) + 1
+            iChar += len(line) + 3
         # now print the lines with locations, padded
         iChar = 0
         for i, line in enumerate(lines):
             location = self.sourceLocation(iChar)
-            locStr = str(location) if location != None else ""
+            locStr = f'[{location}]' if location != None else ""
             locStr = locStr + " " * (maxLocLen - len(locStr))
             print(f"{locStr} {line}")
             iChar += len(line) + 1
@@ -215,9 +235,12 @@ class Error:
         self.source.start = source.start
 
     def __str__(self):
-        (file, iLine, iChar) = self.source.file.sourceLine(self.source.start)
-        return f"Error: {self.message} at {file}:{iLine}:{iChar}\n       {self.source.show(32)}"
+        loc = self.source.file.sourceLocation(self.source.start)
+        return f"Error: {self.message} at {loc}\n       {self.source.show(32)}"
 
+    def __repr__(self):
+        return self.__str__()
+    
 def err(obj)->bool:
     return obj==None or isinstance(obj, Error)
 
