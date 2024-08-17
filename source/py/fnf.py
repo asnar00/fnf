@@ -171,7 +171,6 @@ def testCodeGeneration():
 #---------------------------------------------------------------------------------
 
 def processLog(output: str, outFile: SourceFile) -> str:
-    log("processLog")
     starts = outFile.lineStarts()
     def map_function(file, line, char):
         iChar = starts[int(line)-1]
@@ -184,8 +183,8 @@ def processLog(output: str, outFile: SourceFile) -> str:
         return map_function(file, line, char)
     # Assuming 'content' contains your file contents
     pattern = r'file://([^:]+):(\d+):(\d+)'
-    new_content = re.sub(pattern, replace_callback, output)
-    log(new_content)
+    new_output = re.sub(pattern, replace_callback, output)
+    return new_output
 
 def testBackend():
     mdFilename = "source/fnf/Hello.fnf.ts.md"
@@ -198,15 +197,18 @@ def testBackend():
         return
     outFile = generateCode("mycontext", [feature], language, backend)
     writeTextFile("build/deno/test/main.ts", outFile.code)
-    log_enable()
-    log("testBackend")
     backend = Deno()
     #backend.ensure_latest_version()
     #backend.setup("build/deno/test")
+    log_enable()
+    log("testBackend")
     log("running main.ts")
     output = backend.run("build/deno/test/main.ts", ["-test"])
-    log("output after processing -----------------------")
     output = processLog(output, outFile)
+    log("output after processing: ----------------------")
+    log(output)
+    log("-----------------------------------------------")
+    
 
 #---------------------------------------------------------------------------------
 def test():

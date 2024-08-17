@@ -11,7 +11,7 @@ And here's the function that does the work; we're returning a number just to sho
 
 ```ts
 on hello(name: string) : number {
-    output(`hey what's up ${name}`);
+    output(`hello, ${name}!`);
     return 42;
 }
 ```
@@ -51,6 +51,6 @@ We can run this and get the console live in the code viewer (eventually) using t
 And we can also test the result against a known-correct value:
 
 ```ts
-> let x: number = 45;
-> hello("asnaroo") ==> x
+> let x: number = 1;
+> my_colour.red ==> x
 ```

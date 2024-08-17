@@ -26,7 +26,7 @@ namespace mycontext {
     export function hello(name: string) : number {
         var _result: number;
         const _Hello_hello = (name: string) : number => {
-            output(`hey what's up ${name}`);
+            output(`hello, ${name}!`);
                 return 42;
         };
         _result = _Hello_hello(name);
@@ -41,8 +41,8 @@ namespace mycontext {
     export function _test() {
         const _Hello_test = () => {
             _output(hello("world"), "source/fnf/Hello.fnf.ts.md:48:2");
-            let x: number = 45;
-            _assert(hello("asnaroo"), x, "source/fnf/Hello.fnf.ts.md:55:2");
+            let x: number = 1;
+            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:55:2");
         };
         try { _Hello_test(); } catch (e) { console.error(e); }
     }

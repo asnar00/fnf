@@ -1,6 +1,17 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+Aside for "on" : I'm going back to on/replace, rather than on/def/replace.
+
+Some things to think about:
+
+- 
+
+-----------------------------------
+
+OK, so! We have a working deno backend that successfully runs a single feature, `Hello.fnf.ts.md`. All errors are reported mapped back to the original source location, and it's even ... ghasp ... efficient! We avoid storing multiple copies of source filenames per line by creating an object (`SourcePath`) that contains the filename, and then just pass locations around.
+
+Next: get some more features working: goodbye after hello, ask name before hello. Then we'll look at "on" for parallelism.
 
 -------------------------------
 
