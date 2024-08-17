@@ -82,19 +82,19 @@ class Typescript(Language):
     # output code ... eventually should just use the parser stuff above !
     
     def output_openContext(self, out: SourceFile, name: str):
-        out.pushLine(f"export namespace {name} {{")
+        out.pushLine(f"namespace {name} {{")
     
     def output_closeContext(self, out: SourceFile):
         out.pushLine("}")
     
     def output_struct(self, out: SourceFile, struct: dict):
-        out.pushLine(f'    class {struct["name"]} {{', struct["name"].line())
+        out.pushLine(f'    class {struct["name"]} {{', struct["name"].sourceLocation())
         for prop in struct["properties"]:
             decl = f'        {prop["name"]}'
             decl += f': {prop["type"]}' if "type" in prop else ""
             decl += f' = {prop["value"]}' if "value" in prop else ""
             decl += ";"
-            out.pushLine(decl, prop["name"].line())
+            out.pushLine(decl, prop["name"].sourceLocation())
         decl = "        constructor("
         for i, prop in enumerate(struct["properties"]):
             decl += f'{prop["name"]}'
@@ -115,7 +115,7 @@ class Typescript(Language):
         decl += f'{var["name"]}'
         decl += f' : {var["type"]}' if "type" in var else ""
         decl += f' = {var["value"]};' if "value" in var else ";"
-        out.pushLine(decl, var["name"].line())
+        out.pushLine(decl, var["name"].sourceLocation())
     
     def output_function(self, out: SourceFile, fnName: str, functions: List[dict]):
         def paramDeclStr(fn: dict) -> str:
@@ -138,8 +138,8 @@ class Typescript(Language):
         #function hello(name: string) : number {
         #var _result: number;
         fn = functions[0]
-        decl = f'    function {fnName}({paramDeclStr(fn)}){returnTypeStr(fn)} {{'
-        out.pushLine(decl, fnName.line())
+        decl = f'    export function {fnName}({paramDeclStr(fn)}){returnTypeStr(fn)} {{'
+        out.pushLine(decl, fnName.sourceLocation())
         resultType = fn["returnType"] if "returnType" in fn else "void"
         if resultType != "void":
             out.pushLine(f'        var _result: {resultType};')
@@ -147,13 +147,13 @@ class Typescript(Language):
         for i, fn in enumerate(functions):
             feature = fn["_feature"]
             decl = f'        const _{feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
-            out.pushLine(decl, fn["name"].line())
+            out.pushLine(decl, fn["name"].sourceLocation())
             body = fn["body"]
             lines = body.file.code[body.start:body.end].split("\n")
             if lines[-1]=="": lines.pop()
-            bodyLine = body.line()
+            bodyLocation = body.sourceLocation()
             for i, line in enumerate(lines):
-                out.pushLine(f'            {line}', bodyLine+i)
+                out.pushLine(f'            {line}', SourceLocation(bodyLocation.filename, bodyLocation.lineIndex + i))
             out.pushLine(f'        }};')
 
         call = ""
@@ -170,7 +170,7 @@ class Typescript(Language):
         out.pushLine("    }")
 
     def output_tests(self, out: SourceFile, features: List[dict]):
-        out.pushLine(f'    function _test() {{')
+        out.pushLine(f'    export function _test() {{')
         for feature in features:
             tests = []
             for component in feature["components"]:
@@ -178,21 +178,18 @@ class Typescript(Language):
                     tests.append(component)
             if len(tests) == 0: continue
             out.pushLine(f'        const _{feature["name"]}_test = () => {{')
-            
-            if "_mdFile" in feature:
-                out.pushLine(f'            _source("{feature["_mdFile"]}");')
             for test in tests:
-                testCode = str(test["code"])
-                testLine = test["code"].line()
-                if "==>" in testCode:
-                    lhs = testCode.split("==>")[0].strip()
-                    rhs = testCode.split("==>")[1].strip()
+                code = str(test["code"])
+                loc = test["code"].sourceLocation()
+                if "==>" in code:
+                    lhs = code.split("==>")[0].strip()
+                    rhs = code.split("==>")[1].strip()
                     if rhs == "":
-                        out.pushLine(f'            _output({lhs}, {testLine});', testLine)
+                        out.pushLine(f'            _output({lhs}, "{loc}");', loc)
                     else:
-                        out.pushLine(f'            _assert({lhs}, {rhs}, {testLine});', testLine)
+                        out.pushLine(f'            _assert({lhs}, {rhs}, "{loc}");', loc)
                 else:
-                    out.pushLine(f'            {testCode}', testLine)
+                    out.pushLine(f'            {code}', loc)
             out.pushLine(f'        }};')
         for feature in features:
             out.pushLine(f'        try {{ _{feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')

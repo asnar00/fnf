@@ -113,7 +113,7 @@ class Deno(Backend):
                 "options": {
                     "useTabs": False,
                     "lineWidth": 80,
-                    "indentWidth": 2,
+                    "indentWidth": 4,
                     "singleQuote": True,
                     "proseWrap": "always"
                 }
@@ -132,20 +132,20 @@ class Deno(Backend):
     def preamble(self) -> str:
         return """
 var _file = "";
-function _source(file: string) { _file = file; }
-function _output(value: any, line: number) { console.log(`${_file}:${line}: {value}`); }
-function _assert(lhs: any, rhs: any, line: number) { if (lhs !== rhs) console.log(`${_file}:${line}: ${lhs}`); else console.log(`${file}:${line}: OK`); }"""
+function _output(value: any, loc: string) { console.log(`${loc}:OUTPUT: ${value}`); }
+function _assert(lhs: any, rhs: any, loc: string) { if (lhs !== rhs) console.log(`${loc}:FAIL: ${lhs}`); else console.log(`${loc}:PASS`); }"""
     
     def postamble(self, context: str) -> str:
         return f"""
 function main() {{
-    if ("-test" in Deno.args) {{
-        console.log(f"testing {context}...");
+    if (Deno.args.indexOf("-test") >= 0) {{
+        console.log("testing {context}...");
         {context}._test();
         return;
     }}
 }}
-        """
+
+main();"""
 
     def run(self, filename: str, options: List[str]=[])->str:
         if not os.path.exists(filename):
