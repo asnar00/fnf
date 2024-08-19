@@ -8,7 +8,7 @@ This is a whole new feature we're adding to the original `Hello` program!
 We declare a new function to say goodbye:
 
     on goodbye() {
-        output("kthxbai");
+        output("kthxbai.");
     }
 
 And plug it in so it runs whenever `hello()` is called, after the existing definition:

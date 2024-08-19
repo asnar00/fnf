@@ -26,6 +26,10 @@ namespace mycontext {
     export function hello(name: string) : number {
         var _result: number;
         _result = (() => {
+            countdown();
+        })();
+        if (_result != undefined) return _result;
+        _result = (() => {
             output(`hello, ${name}!`);
             return 42;
         })();
@@ -42,7 +46,12 @@ namespace mycontext {
     }
     export function goodbye() {
         (() => {
-            output("kthxbai");
+            output("kthxbai.");
+        })();
+    }
+    export function countdown() {
+        (() => {
+            output("10 9 8 7 6 5 4 3 2 1")
         })();
     }
     export function _test() {
@@ -53,8 +62,11 @@ namespace mycontext {
         };
         const _Goodbye_test = () => {
         };
+        const _Countdown_test = () => {
+        };
         try { _Hello_test(); } catch (e) { console.error(e); }
         try { _Goodbye_test(); } catch (e) { console.error(e); }
+        try { _Countdown_test(); } catch (e) { console.error(e); }
     }
 }
 
