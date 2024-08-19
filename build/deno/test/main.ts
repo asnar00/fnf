@@ -25,14 +25,17 @@ namespace mycontext {
     var my_colour : Colour =  new Colour(1, 2, 3);
     export function hello(name: string) : number {
         var _result: number;
+        // ------------------------ Countdown ------------------------
         _result = (() => {
             countdown();
         })();
         if (_result != undefined) return _result;
+        // ------------------------ Hello ------------------------
         _result = (() => {
             output(`hello, ${name}!`);
             return 42;
         })();
+        // ------------------------ Goodbye ------------------------
         _result = (() => {
             goodbye();
             return _result + 1;
@@ -40,16 +43,19 @@ namespace mycontext {
         return _result;
     }
     export function output(msg: string, indent: number = 0) {
+        // ------------------------ Hello ------------------------
         (() => {
             console.log(" ".repeat(indent) + msg);
         })();
     }
     export function goodbye() {
+        // ------------------------ Goodbye ------------------------
         (() => {
             output("kthxbai.");
         })();
     }
     export function countdown() {
+        // ------------------------ Countdown ------------------------
         (() => {
             output("10 9 8 7 6 5 4 3 2 1")
         })();

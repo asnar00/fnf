@@ -1,87 +1,43 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
-OK, for our next trick, we're going to do `after`.
+after/before are done.
 
-For simplicity, we'll just process the entire feature list.
+Here's the output ts code for the classic countdown/hello/goodbye example:
 
-We'll look at `on`, `after` and `before` because they're the most fun.
-
-    //hello.md
-
-    on hello(name: string): number {
-        output(`hello ${name}!`);
-        return 42;
-    }
-
-    // goodbye.md
-    after hello(name: string): number {
-        output("bye!");
-        return _result + 1;         // << special keyword
-    }
-
-    // countdown.md
-    before hello(name: string): number {
-        output("10 9 8 7 6 5 4 3 2 1");
-    }
-
-This should result in the following output code given the array [Hello, Goodbye, Countdown]:
-
-    const hello_Hello = (name: string): number => {
-        output(`hello ${name}!`);
-        return 42;
-    };
-
-    const hello_Goodbye = (_result: number, name: string): number => {
-        output("bye!");
-        return _result + 1;
-    };
-
-    const hello_Countdown = (name: string): number => {
-        output("10 9 8 7 6 5 4 3 2 1");
-    };
-
-    const hello = (name: string): number => {
+    export function hello(name: string) : number {
         var _result: number;
-        _result = hello_Countdown(name); if (_result) return _result;
-        _result = hello_Hello(name);
-        _result = hello_Goodbye(_result, name);
-        return _result;
-    }
-
-    const hello = (name: string): number => {
-        var _result = () => {
-            output("10 9 8 7 6 5 4 3 2 1");
-        }();
-        if (_result) return _result;
-        _result = () => {
-            output(`hello ${name}!`);
-            return 42;
-        }();
+        // ------------------------ Countdown ------------------------
         _result = (() => {
-            output("bye!");
+            countdown();
+        })();
+        if (_result != undefined) return _result;
+        // ------------------------ Hello ------------------------
+        _result = (() => {
+            output(`hello, ${name}!`);
+            return 42;
+        })();
+        // ------------------------ Goodbye ------------------------
+        _result = (() => {
+            goodbye();
             return _result + 1;
-        }();
+        })();
         return _result;
     }
 
+The aims here were:
 
-    before(Countdown, after(Goodbye, Hello))
+- locality: don't have to go somewhere else to understand the code; so no separate definitions of hello_Hello and so on.
 
-    Countdown, [Hello, Goodbye]
+- reduce recursion: even if that's elegant conceptually, it's just not efficient
 
-    the only thing we haven't done yet is "on" => but we're doing that later.
+- easy generation: work with a sourceblock called "existing", each new fn-application adds new lines to it, voila. Also, don't have to do any complex rewriting of function bodies or innards, we just copy the body wholesale, and it's fine. Note that this wouldn't be the case if we wanted to turn a function into a local-scope within the outer function.
 
-    before(Countdown, after(Hello, Goodbye))        => so this really is the thing.
+- the early-out / _result patterns work nicely here : was shown to be useful in the microserver.fm experiment - which will continue once this is "stable-ish".
 
-    _result = () => {
-    }();
+There's potential here to lift functionality up out of the Language class. But I think python, C++ both support this nicely with lambdas. The "define lambda capturing all other variables from the calling context" pattern just means we don't have to repeatedly pass parameters down into functions - we just read the top-level ones. However there's lots of potential here for confusion if we write to parameters... we wouldn't do that ever would we?? ;-)
 
-
-
-
-
-
+All in all, I think a reasonable solution for this round. A better solution would obviously be something that works at the AST level, which is something I'll get my head around later.
 
 ----------------------------------------------------
 

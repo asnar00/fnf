@@ -147,6 +147,7 @@ class Typescript(Language):
         for fn in functions:
             modifier = fn["modifier"]
             newBlock = SourceFile()
+            newBlock.pushLine(f'        // ------------------------ {fn["_feature"]} ------------------------', fn["name"].sourceLocation())
             call = '        '
             if returnType: call += f'_result = '
             call += f'(() => {{'
