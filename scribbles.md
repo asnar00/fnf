@@ -1,6 +1,85 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+So next step then is (deep breath) concurrency, namely the `on` keyword.
+
+A really simple way of handling all of this is to bifurcate `on` into two forms:
+
+- if it's a void-returning function then just run them async, await both
+
+- if it's a result-returning function, then we need to split the function into two things: 1) the parallel bit and 2) the bit that combines them together. 
+
+    on blah(...): rt {
+        result1 = fork(_blah);           // call old code
+        result2 = fork(newblah);         // concurrently with new code
+        return fn(result1, result2);     // combine the results
+    }
+    
+We'd have to think about this. It would be something like:
+
+- if it's super small, eg. colour alpha, then "on" effectively means "either before or after, don't care"
+
+    on r: Colour = (a: Colour) + (b: Colour) {
+        r.a = a.a + b.a;
+    }
+
+So here because it's only one line, we wouldn't go all the effort of parallelising the solution. This pattern really works because there's no questions about allocating space for the result - r already exists and has a place somewhere, so we literally don't care about where it is.
+
+I'm actually super super close to making the decision to just go for named-results. It just fucking makes sense.
+
+I think the `Colour` example is the convincing argument for why we need named results. This would then let us do the really nice scope-less code replacement.
+
+So decisions:
+
+1. We're going for the named-result pattern
+2. We'll change code-generation to be function-call-less (just scopes)
+    => much cleaner, doesn't assume lambdas/closures which I don't like
+3. Then we do "on" parallel cases for Colour add and timeout countdown.
+
+
+
+
+--------------------------------------------------------------
+
+With that out of the way, let's think about the next step.
+=> we could decide that we'd rather just output super efficient code, but I think that optimisation can wait. Or can it? We want to be performant, after all, otherwise what's the point?
+
+OK, so let's just think for a second about what we'd have to do make this really efficient. Fundamentally, you'd transform all `return x` to `_result = x` and lift each body out into its own scope. Any local variables declared inside the stub functions would be restricted to the scope, so that would work.
+
+    export function hello(name: string) : number {
+        var _result: number;
+        // ------------------------ Countdown ------------------------
+        {
+            countdown();
+        }
+        // ------------------------ Hello ------------------------
+        {
+            output(`hello, ${name}!`);
+            _result = 42;
+        }
+        // ------------------------ Goodbye ------------------------
+        {
+            goodbye();
+            _result = __result + 1;
+        }
+        return _result;
+    }
+
+The only reason this doesn't work is because of the whole `return` thing. return cuts control flow to the end of the function, but doesn't have the same effect within a scope. If there was code after the return, and we did this transformation `_result=`, then the behaviour would change. So we have to somehow get rid of all code following the `return`, which I think ends up being a bit more gnarly than we need.
+
+This does again tend to push us towards the `named results` pattern, but I want to resist that because it isn't totally general. But it would totally make sense here.
+
+    on (r: number) = hello(name: string) {
+    }
+
+    before (r: number) = hello(name: string) {
+    }
+
+But I don't like this, because it's pushing the whole "dialect" thing a bit too hard. 
+
+Decision: I'm satisfied that the optimisation is possible later, so let's move forward.
+
+-------------------------------------------------------------
 after/before are done.
 
 Here's the output ts code for the classic countdown/hello/goodbye example:
