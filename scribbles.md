@@ -3,9 +3,29 @@
 
 Aside for "on" : I'm going back to on/replace, rather than on/def/replace.
 
-Some things to think about:
+Some possible things to think about next:
 
-- 
+- feature composition: on, after, before, replace
+- accessing _function from replace
+- a more generic intermediate compositional form?
+- main() entry point to context
+- backend-specific context (wrappers for deno fns)
+- working demos/tests for py, cpp, swift?
+- web editor for vscode  <== important for takeup
+- data-driven parser model [many reasons, mainly extensibility]
+
+What's the most important?
+
+- webeditor in vscode, written in fnf.ts
+
+=> this is a great first step, because it's useful functionality and will benefit from fnf.
+
+For this we'll need to get the client/server demo working.
+So our first milestone is:
+
+hello world in the browser.
+
+Let's get on with it.
 
 -----------------------------------
 

@@ -23,19 +23,19 @@ namespace mycontext {
         }
     }
     var my_colour : Colour =  new Colour(1, 2, 3);
+    const _Hello_hello = (name: string) : number => {
+        output(`hello, ${name}!`);
+            return 42;
+    };
     export function hello(name: string) : number {
         var _result: number;
-        const _Hello_hello = (name: string) : number => {
-            output(`hello, ${name}!`);
-                return 42;
-        };
         _result = _Hello_hello(name);
         return _result;
     }
+    const _Hello_output = (msg: string, indent: number = 0) => {
+        console.log(" ".repeat(indent) + msg);
+    };
     export function output(msg: string, indent: number = 0) {
-        const _Hello_output = (msg: string, indent: number = 0) => {
-            console.log(" ".repeat(indent) + msg);
-        };
         _Hello_output(msg, indent);
     }
     export function _test() {

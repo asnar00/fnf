@@ -135,26 +135,24 @@ class Typescript(Language):
                 params += ", " if i < len(fn["parameters"])-1 else ""
             return params
         
-        #function hello(name: string) : number {
-        #var _result: number;
-        fn = functions[0]
-        decl = f'    export function {fnName}({paramDeclStr(fn)}){returnTypeStr(fn)} {{'
-        out.pushLine(decl, fnName.sourceLocation())
-        resultType = fn["returnType"] if "returnType" in fn else "void"
-        if resultType != "void":
-            out.pushLine(f'        var _result: {resultType};')
-
         for i, fn in enumerate(functions):
             feature = fn["_feature"]
-            decl = f'        const _{feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
+            decl = f'    const _{feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
             out.pushLine(decl, fn["name"].sourceLocation())
             body = fn["body"]
             lines = body.file.code[body.start:body.end].split("\n")
             if lines[-1]=="": lines.pop()
             bodyLocation = body.sourceLocation()
             for i, line in enumerate(lines):
-                out.pushLine(f'            {line}', SourceLocation(bodyLocation.path, bodyLocation.lineIndex + i))
-            out.pushLine(f'        }};')
+                out.pushLine(f'        {line}', SourceLocation(bodyLocation.path, bodyLocation.lineIndex + i))
+            out.pushLine(f'    }};')
+
+        fn = functions[0]
+        decl = f'    export function {fnName}({paramDeclStr(fn)}){returnTypeStr(fn)} {{'
+        out.pushLine(decl, fnName.sourceLocation())
+        resultType = fn["returnType"] if "returnType" in fn else "void"
+        if resultType != "void":
+            out.pushLine(f'        var _result: {resultType};')
 
         call = ""
         if resultType == "void":
