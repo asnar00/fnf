@@ -45,7 +45,7 @@ local my_colour : Colour = new Colour(1, 2, 3);
 We can run this and get the console live in the code viewer (eventually) using this lovely formulation:
 
 ```ts
-> hello("world") ==> 
+> hello("world") ==> 42
 ```
 
 And we can also test the result against a known-correct value:

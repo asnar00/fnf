@@ -23,28 +23,38 @@ namespace mycontext {
         }
     }
     var my_colour : Colour =  new Colour(1, 2, 3);
-    const _Hello_hello = (name: string) : number => {
-        output(`hello, ${name}!`);
-            return 42;
-    };
     export function hello(name: string) : number {
         var _result: number;
-        _result = _Hello_hello(name);
+        _result = (() => {
+            output(`hello, ${name}!`);
+            return 42;
+        })();
+        _result = (() => {
+            goodbye();
+            return _result + 1;
+        })();
         return _result;
     }
-    const _Hello_output = (msg: string, indent: number = 0) => {
-        console.log(" ".repeat(indent) + msg);
-    };
     export function output(msg: string, indent: number = 0) {
-        _Hello_output(msg, indent);
+        (() => {
+            console.log(" ".repeat(indent) + msg);
+        })();
+    }
+    export function goodbye() {
+        (() => {
+            output("kthxbai");
+        })();
     }
     export function _test() {
         const _Hello_test = () => {
-            _output(hello("world"), "source/fnf/Hello.fnf.ts.md:48:2");
+            _assert(hello("world"), 42, "source/fnf/Hello.fnf.ts.md:48:2");
             let x: number = 1;
             _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:55:2");
         };
+        const _Goodbye_test = () => {
+        };
         try { _Hello_test(); } catch (e) { console.error(e); }
+        try { _Goodbye_test(); } catch (e) { console.error(e); }
     }
 }
 

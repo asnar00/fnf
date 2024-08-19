@@ -10,6 +10,7 @@ import json
 import subprocess
 from typing import List
 from typing import Tuple
+import datetime
 
 #---------------------------------------------------------------------------------
 # switch-on-and-offable logging
@@ -48,6 +49,35 @@ def writeTextFile(path: str, text: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
         file.write(text)
+
+def currentWorkingDirectory() -> str:
+    return os.getcwd()
+
+def getCreationTimestamp(file_path):
+    try:
+        stat = os.stat(file_path)
+        return stat.st_birthtime
+    except AttributeError:
+        # This may not be available on all systems
+        return None
+
+def scanFolder(self, ext: str) -> List[str]:
+    cwd = currentWorkingDirectory()
+    # scan the directory for .fnf.md files
+    filesFound = []
+    for root, dirs, files in os.walk(cwd):
+        for file in files:
+            if file.endswith(ext):
+                filesFound.append(os.path.join(root, file))
+    # sort files into ascending order of creation-date
+    filesFound.sort(key=lambda x: getCreationTimestamp(x))
+    filesFound= [file.replace(cwd+"/", "") for file in filesFound]
+    log("filesFound:")
+    for file in filesFound:
+        dateAsString = os.path.getctime(file)
+        humanReadableDate = datetime.datetime.fromtimestamp(dateAsString).isoformat()
+        log(f"  {file} : creation date {humanReadableDate}")
+    return filesFound
 
 #---------------------------------------------------------------------------------
 # shell / config stuff for installing things
@@ -123,11 +153,13 @@ class SourceLocation:
 # SourceFile holds filename, sourcemap, does extraction/initial processing
 
 class SourceFile:
-    def __init__(self):
+    def __init__(self, path=None):
         self.text = ""                  # original file text
         self.code = ""                  # extracted code    
         self.filenames = []             # list of filenames for source map    
         self.sourceMap = []             # list of (charIndex, SourceMap) pairs
+        if path:
+            self.loadMarkdown(path)
         
     # load markdown file, figure out language, extract code
     def loadMarkdown(self, mdFile: str):
@@ -160,6 +192,13 @@ class SourceFile:
     def pushLine(self, codeLine: str, location: SourceLocation = None):
         self.sourceMap.append((len(self.code), location))
         self.code += codeLine + "\n"
+
+    # pushes all lines of (source) to end of lines, merges sourcemaps
+    def appendSource(self, source: 'SourceFile'):
+        length = len(self.code)
+        self.code += source.code
+        for i in range(0, len(source.sourceMap)):
+            self.sourceMap.append((source.sourceMap[i][0]+length, source.sourceMap[i][1]))
 
     # maps character-index in source code to location in original file
     def sourceLocation(self, iChar: int) -> SourceLocation:
@@ -196,7 +235,7 @@ class SourceFile:
             location = self.sourceLocation(iChar)
             locStr = f'[{location}]' if location != None else ""
             locStr = locStr + " " * (maxLocLen - len(locStr))
-            print(f"{locStr} {line}")
+            log(f"{locStr} {line}")
             iChar += len(line) + 1
 
 #---------------------------------------------------------------------------------
@@ -216,6 +255,13 @@ class Source:
     
     def __repr__(self):
         return self.__str__()
+    
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.file.code[self.start:self.start + len(other)] == other
+
+    def __hash__(self):
+        return hash((self.name, self.offset))
     
     def sourceLocation(self):
         return self.file.sourceLocation(self.start)

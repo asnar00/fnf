@@ -70,18 +70,19 @@ def testParser():
 # code generation
 
 # read markdown file, extract code, parse it
-def parseFeature(mdFilename: str, language: Language) -> dict | Error:
-    sourceFile = SourceFile()
-    sourceFile.loadMarkdown(mdFilename)
+def parseFeature(sourceFile: SourceFile, language: Language) -> dict | Error:
     parser = language.feature()
     source = Source(sourceFile)
     result = parser(source)
     return result
     
+
+
 # given a list of parsed features, return source code for the chosen language/backend
 def generateCode(contextName: str, features: List[dict], language: Language, backend: Backend) -> SourceFile:
     out = SourceFile()
-    vars = {}   # map name => dict
+
+    vars = {}  # map name => dict
     structs = {}  # map name => dict
     functions = {}  # map name => List[dict]
 
@@ -91,19 +92,19 @@ def generateCode(contextName: str, features: List[dict], language: Language, bac
             component["_feature"] = feature["name"]
             if component["_type"] == "test":
                 continue
-            name = component["name"]
+            name = str(component["name"])
             if component["_type"] == "local":
                 vars[name] = component
             elif component["_type"] == "struct":
-                if not name in structs:
+                if name not in structs:
                     structs[name] = component
                 else:
-                    structs[name].properties.extend(component.properties)
+                    structs[name]["properties"].extend(component["properties"])
             elif component["_type"] == "function":
-                if not name in functions:
-                    functions[name] = [component]
-                else:
+                if name in functions:
                     functions[name].append(component)
+                else:
+                    functions[name] = [component]
 
     # fnf preamble
     out.pushLine("// ᕦ(ツ)ᕤ")
@@ -134,9 +135,9 @@ def generateCode(contextName: str, features: List[dict], language: Language, bac
         language.output_variable(out, var)
 
     log("\nfunctions:")
-    for name, fnList in functions.items():
-        log(f"  {name}: {fnList}\n")
-        language.output_function(out, name, fnList)
+    for name, functionList in functions.items():
+        log(f"  {name}: {functionList}")
+        language.output_function(out, name, functionList)
 
     language.output_tests(out, features)
 
@@ -153,10 +154,10 @@ def generateCode(contextName: str, features: List[dict], language: Language, bac
     return out
 
 def testCodeGeneration():
-    mdFilename = "source/fnf/Hello.fnf.ts.md"
+    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
     language = Typescript()
     backend = Deno()
-    feature = parseFeature(mdFilename, language)
+    feature = parseFeature(sourceFile, language)
     log_enable()
     log("result:", feature)
     if err(feature):
@@ -187,10 +188,10 @@ def processLog(output: str, outFile: SourceFile) -> str:
     return new_output
 
 def testBackend():
-    mdFilename = "source/fnf/Hello.fnf.ts.md"
+    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
     language = Typescript()
     backend = Deno()
-    feature = parseFeature(mdFilename, language)
+    feature = parseFeature(sourceFile, language)
     if err(feature): 
         log_enable()
         log(feature)
@@ -209,6 +210,33 @@ def testBackend():
     log(output)
     log("-----------------------------------------------")
     
+def testBuildContext():
+    log_enable()
+    log("testBuildContext")
+    language = Typescript()
+    backend = Deno()
+    ext = ".fnf.ts.md"
+    files = scanFolder("source/fnf", ext)
+    sourceFiles = [SourceFile(file) for file in files]
+    log_disable()
+    features = [parseFeature(s, language) for s in sourceFiles]
+    log("features:")
+    for feature in features:
+        log("-------------------")
+        log(feature)
+    log("------------------------------------------------------")
+    outFile = generateCode("mycontext", features, language, backend)
+    outFile.show()
+    log("------------------------------------------------------")
+    writeTextFile("build/deno/test/main.ts", outFile.code)
+    log_enable()
+    log("testing main.ts")
+    output = backend.run("build/deno/test/main.ts", ["-test"])
+    output = processLog(output, outFile)
+    log("output after processing: ----------------------")
+    log(output)
+    log("-----------------------------------------------")
+
 
 #---------------------------------------------------------------------------------
 def test():
@@ -216,7 +244,9 @@ def test():
     #testSourceFile()
     #testParser()
     #testCodeGeneration()
-    testBackend()
+    #testBackend()
+    testBuildContext()
+    #testFns()
 
 if __name__ == "__main__":
     clear_console()

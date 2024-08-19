@@ -1,28 +1,19 @@
 ᕦ(ツ)ᕤ
-# Hello
+# Goodbye
 
-This is a small program expressed in _feature normal typescript_ that prints "hello world" to the console.
+This is a whole new feature we're adding to the original `Hello` program!
 
-```ts
-feature Goodbye extends Hello {
-```
+    feature Goodbye extends Hello {
 
-All it does it output "bye!" after `Hello` runs. This is how we do it:
+We declare a new function to say goodbye:
 
-First, we define a new function called `goodbye()` that outputs "bye":
+    on goodbye() {
+        output("kthxbai");
+    }
 
-```ts
-on goodbye() {
-    output("bye!")
-}
-```
-And then we "plug it in" to the existing program by extending the existing `hello` function; we just bolt on a call to `goodbye` whenever `hello` is called. The syntax is like this:
+And plug it in so it runs whenever `hello()` is called, after the existing definition:
 
-```ts
-after hello(name: string) : number { 
-    goodbye();
-    return _result + 1;
-}
-```
-
-
+    after hello(name: string): number {
+        goodbye();
+        return _result + 1;
+    }

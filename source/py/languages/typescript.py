@@ -135,38 +135,44 @@ class Typescript(Language):
                 params += ", " if i < len(fn["parameters"])-1 else ""
             return params
         
-        for i, fn in enumerate(functions):
-            feature = fn["_feature"]
-            decl = f'    const _{feature}_{fnName} = ({paramDeclStr(fn)}){returnTypeStr(fn)} => {{'
-            out.pushLine(decl, fn["name"].sourceLocation())
-            body = fn["body"]
-            lines = body.file.code[body.start:body.end].split("\n")
-            if lines[-1]=="": lines.pop()
-            bodyLocation = body.sourceLocation()
-            for i, line in enumerate(lines):
-                out.pushLine(f'        {line}', SourceLocation(bodyLocation.path, bodyLocation.lineIndex + i))
-            out.pushLine(f'    }};')
-
+        # preamble
         fn = functions[0]
-        decl = f'    export function {fnName}({paramDeclStr(fn)}){returnTypeStr(fn)} {{'
-        out.pushLine(decl, fnName.sourceLocation())
-        resultType = fn["returnType"] if "returnType" in fn else "void"
-        if resultType != "void":
-            out.pushLine(f'        var _result: {resultType};')
-
-        call = ""
-        if resultType == "void":
-            call = f'        _{feature}_{fnName}({paramCallStr(fn)});'
-        else:
-            call = f'        _result = _{feature}_{fnName}({paramCallStr(fn)});'
-
-        out.pushLine(call)
+        returnType = functions[0]["returnType"] if "returnType" in functions[0] else None
+        out.pushLine(f'    export function {fn["name"]}({paramDeclStr(fn)}){returnTypeStr(fn)} {{')
         
-        # right at the end
-        if resultType != "void":
-            out.pushLine("        return _result;")
-        out.pushLine("    }")
+        if returnType:
+            out.pushLine(f'        var _result: {fn["returnType"]};')
 
+        existing = SourceFile()
+        for fn in functions:
+            modifier = fn["modifier"]
+            newBlock = SourceFile()
+            call = '        '
+            if returnType: call += f'_result = '
+            call += f'(() => {{'
+            newBlock.pushLine(call)
+            lines = str(fn["body"]).split("\n")[:-1]
+            loc = fn["body"].sourceLocation()
+            path = loc.path
+            lineIndex = loc.lineIndex
+            for i, line in enumerate(lines):
+                newBlock.pushLine(f'{'        '}{'    ' if i==0 else ''}{line}', SourceLocation(path, lineIndex+i))
+            newBlock.pushLine(f'        }})();')
+
+            if modifier == "on" or modifier == "after":            
+                existing.appendSource(newBlock)
+            elif modifier == "before":
+                if returnType:
+                    newBlock.pushLine(f'        if (_result != undefined) return _result;')
+                newBlock.appendSource(existing)
+                existing = newBlock
+        out.appendSource(existing)
+
+        # post-amble
+        if returnType:
+            out.pushLine(f'        return _result;')
+        out.pushLine(f'    }}')
+        
     def output_tests(self, out: SourceFile, features: List[dict]):
         out.pushLine(f'    export function _test() {{')
         for feature in features:
@@ -174,7 +180,6 @@ class Typescript(Language):
             for component in feature["components"]:
                 if component["_type"] == "test":
                     tests.append(component)
-            if len(tests) == 0: continue
             out.pushLine(f'        const _{feature["name"]}_test = () => {{')
             for test in tests:
                 code = str(test["code"])

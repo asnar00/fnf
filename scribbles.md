@@ -1,6 +1,90 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+OK, for our next trick, we're going to do `after`.
+
+For simplicity, we'll just process the entire feature list.
+
+We'll look at `on`, `after` and `before` because they're the most fun.
+
+    //hello.md
+
+    on hello(name: string): number {
+        output(`hello ${name}!`);
+        return 42;
+    }
+
+    // goodbye.md
+    after hello(name: string): number {
+        output("bye!");
+        return _result + 1;         // << special keyword
+    }
+
+    // countdown.md
+    before hello(name: string): number {
+        output("10 9 8 7 6 5 4 3 2 1");
+    }
+
+This should result in the following output code given the array [Hello, Goodbye, Countdown]:
+
+    const hello_Hello = (name: string): number => {
+        output(`hello ${name}!`);
+        return 42;
+    };
+
+    const hello_Goodbye = (_result: number, name: string): number => {
+        output("bye!");
+        return _result + 1;
+    };
+
+    const hello_Countdown = (name: string): number => {
+        output("10 9 8 7 6 5 4 3 2 1");
+    };
+
+    const hello = (name: string): number => {
+        var _result: number;
+        _result = hello_Countdown(name); if (_result) return _result;
+        _result = hello_Hello(name);
+        _result = hello_Goodbye(_result, name);
+        return _result;
+    }
+
+    const hello = (name: string): number => {
+        var _result = () => {
+            output("10 9 8 7 6 5 4 3 2 1");
+        }();
+        if (_result) return _result;
+        _result = () => {
+            output(`hello ${name}!`);
+            return 42;
+        }();
+        _result = (() => {
+            output("bye!");
+            return _result + 1;
+        }();
+        return _result;
+    }
+
+
+    before(Countdown, after(Goodbye, Hello))
+
+    Countdown, [Hello, Goodbye]
+
+    the only thing we haven't done yet is "on" => but we're doing that later.
+
+    before(Countdown, after(Hello, Goodbye))        => so this really is the thing.
+
+    _result = () => {
+    }();
+
+
+
+
+
+
+
+----------------------------------------------------
+
 Aside for "on" : I'm going back to on/replace, rather than on/def/replace.
 
 Some possible things to think about next:
