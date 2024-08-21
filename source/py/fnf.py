@@ -234,14 +234,12 @@ def processLog(output: str, outFile: SourceFile) -> str:
     output = remove_ansi_sequences(output)
     starts = outFile.lineStarts()
     def map_function(file, line, char):
-        print("map_function", file, line, char)
         iChar = starts[int(line)-1]
         location = outFile.sourceLocation(iChar)
         if location == None:
             return f"file://{file}:{line}:{char}"
         return str(location)
     def replace_callback(match):
-        print("replace_callback")
         file, line, char = match.groups()
         return map_function(file, line, char)
     # Assuming 'content' contains your file contents
@@ -294,7 +292,6 @@ def testBuildContext():
     log("------------------------------------------------------")
     writeTextFile("build/deno/test/main.ts", outFile.code)
     log_enable()
-    log("testing main.ts")
     processFn = lambda line: processLog(line, outFile)
     output = backend.run(processFn, "build/deno/test/main.ts", ["-test"])
     

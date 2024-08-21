@@ -13,6 +13,7 @@ from typing import List
 from typing import Tuple
 import datetime
 import traceback
+from threading import Thread
 
 #---------------------------------------------------------------------------------
 # switch-on-and-offable logging
@@ -85,29 +86,37 @@ def scanFolder(self, ext: str) -> List[str]:
 # shell / config stuff for installing things
 
 # runs a shell command, optionally processes output+errors line by line, returns collected output
-def runProcess(cmd: List[str], processFn= (lambda x: x))->str:
-    # Initialize an empty string to collect processed output
+def runProcess(cmd: List[str], processFn=(lambda x: x)) -> str:
     collected_output = ""
-    process = subprocess.Popen(cmd, 
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    # Read the subprocess output line by line
-    while True:
-        output = process.stdout.readline()
-        if output == '' and process.poll() is not None:
-            break
-        if output:
-            processed_line = processFn(output).strip()
-            log(processed_line)
-            collected_output += processed_line + '\n'
+    # Helper function to process and log output
+    def process_output(stream, append_to):
+        nonlocal collected_output
+        while True:
+            line = stream.readline()
+            if line:
+                processed_line = processFn(line).strip()
+                log(processed_line)
+                append_to.append(processed_line + '\n')
+            else:
+                break
 
-    # Read any errors
-    err = process.stderr.read()
-    if err:
-        processed_error = processFn(err)
-        collected_output += processed_error + '\n'
+    # Using lists to collect output as strings are immutable
+    stdout_output = []
+    stderr_output = []
+
+    # Start threads to handle stdout and stderr
+    stdout_thread = Thread(target=process_output, args=(process.stdout, stdout_output))
+    stderr_thread = Thread(target=process_output, args=(process.stderr, stderr_output))
+
+    stdout_thread.start()
+    stderr_thread.start()
+    stdout_thread.join()
+    stderr_thread.join()
+
+    # Collect final outputs
+    collected_output = ''.join(stdout_output) + ''.join(stderr_output)
     return collected_output
 
 # returns the correct shell config file path depending on the shell in use
@@ -228,6 +237,19 @@ class SourceFile:
         for i in range(0, len(source.sourceMap)):
             self.sourceMap.append((source.sourceMap[i][0]+length, source.sourceMap[i][1]))
 
+    # indent all lines by (nSpaces) spaces, updating sourcemap accordingly
+    def indent(self, nSpaces: int):
+        newCode = ""
+        newSourceMap = []
+        toInsert = " " * nSpaces
+        lines = self.code.split("\n")
+        if lines[-1] == "": lines.pop()
+        for i, line in enumerate(lines):
+            newSourceMap.append((len(newCode), self.sourceMap[i][1]))
+            newCode += toInsert + line + "\n"
+        self.code = newCode
+        self.sourceMap = newSourceMap
+
     # maps character-index in source code to location in original file
     def sourceLocation(self, iChar: int) -> SourceLocation:
         for i in range(0, len(self.sourceMap)): # TODO: binary search
@@ -263,7 +285,7 @@ class SourceFile:
             location = self.sourceLocation(iChar)
             locStr = f'[{location}]' if location != None else ""
             locStr = locStr + " " * (maxLocLen - len(locStr))
-            log(f"{(i+1)}{locStr} {line}")
+            log(f"{(i+1)}{locStr.replace("source/fnf/", "")} {line}")
             iChar += len(line) + 1
 
 #---------------------------------------------------------------------------------

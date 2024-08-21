@@ -23,23 +23,32 @@ namespace mycontext {
         }
     }
     var my_colour : Colour =  new Colour(1, 2, 3);
-    export async function hello(name: string) : Promise<number> {
+    export async function hello(name: string) : Promise<number|undefined> {
         var _result: number|undefined;
-        // ------------------------ Countdown ------------------------
         _result = await (async () => {
-            (await countdown());
-            return _result;
-        })();
-        if (_result != undefined) return _result;
-        // ------------------------ Hello ------------------------
-        _result = (() => {
-            output(`hello, ${name}!`);
-            return 42;
-        })();
-        // ------------------------ Goodbye ------------------------
-        _result = (() => {
-            goodbye();
-            return _result + 1;
+            const results = await Promise.all([
+                (() => {
+                    // ------------------------ Hello ------------------------
+                    _result = (() => {
+                        output(`hello, ${name}!`);
+                        return 42;
+                    })();
+                    // ------------------------ Goodbye ------------------------
+                    _result = (() => {
+                        goodbye();
+                        return _result + 1;
+                    })();
+                    return _result;
+                })()
+                ,
+                // ------------------------ Countdown ------------------------
+                (async () => {
+                    (await countdown());
+                    return _result;
+                })()
+            ]);
+            const validResults = results.filter(result => result !== undefined);
+            return validResults.length > 0 ? validResults[0] : undefined;
         })();
         return _result;
     }
@@ -50,7 +59,7 @@ namespace mycontext {
             console.log(" ".repeat(indent) + msg);
         })();
     }
-    export async function main() : Promise<void> {
+    export async function main() : Promise<void|undefined> {
         var _result: undefined;
         // ------------------------ Hello ------------------------
         await (async () => {
@@ -64,17 +73,17 @@ namespace mycontext {
             output("kthxbai.");
         })();
     }
-    export async function countdown() : Promise<void> {
+    export async function countdown() : Promise<void|undefined> {
         var _result: undefined;
         // ------------------------ Countdown ------------------------
         await (async () => {
             for(let i=10; i > 0; i--) {
                     output(`${i}`);
-                    (await sleep(100));
+                    (await wait(100))
                 }
         })();
     }
-    export async function sleep(msec: number) : Promise<void> {
+    export async function wait(msec: number) : Promise<void> {
         var _result: void|undefined;
         // ------------------------ Countdown ------------------------
         _result = await (async () => {
