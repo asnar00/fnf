@@ -5,12 +5,14 @@
 # it contains generally useful functions for files, logging, parsing, errors
 
 import os
+import sys
 import re
 import json
 import subprocess
 from typing import List
 from typing import Tuple
 import datetime
+import traceback
 
 #---------------------------------------------------------------------------------
 # switch-on-and-offable logging
@@ -81,6 +83,32 @@ def scanFolder(self, ext: str) -> List[str]:
 
 #---------------------------------------------------------------------------------
 # shell / config stuff for installing things
+
+# runs a shell command, optionally processes output+errors line by line, returns collected output
+def runProcess(cmd: List[str], processFn= (lambda x: x))->str:
+    # Initialize an empty string to collect processed output
+    collected_output = ""
+    process = subprocess.Popen(cmd, 
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True)
+
+    # Read the subprocess output line by line
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            processed_line = processFn(output).strip()
+            log(processed_line)
+            collected_output += processed_line + '\n'
+
+    # Read any errors
+    err = process.stderr.read()
+    if err:
+        processed_error = processFn(err)
+        collected_output += processed_error + '\n'
+    return collected_output
 
 # returns the correct shell config file path depending on the shell in use
 def get_shell_config_file():

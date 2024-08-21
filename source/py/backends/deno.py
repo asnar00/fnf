@@ -152,39 +152,14 @@ main();"""
         if not os.path.exists(filename):
             return f"Error: File not found: {filename}", ""
         try:
-            # Initialize an empty string to collect processed output
-            collected_output = ""
-            # Run the Deno file
-            process = subprocess.Popen(['deno', 'run', '--allow-all', filename, *options], 
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True)
-
-            if not hasattr(process.stdout, 'readline'):
-                sys.stderr.write('Unexpected type for stdout, expected file-like object.\n')
-                return "", ""
-            # Read the subprocess output line by line
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    processed_line = processFn(output).strip()
-                    log(processed_line)
-                    collected_output += processed_line + '\n'
-
-            # Read any errors
-            err = process.stderr.read()
-            if err:
-                processed_error = processFn(err)
-                collected_output += processed_error + '\n'
-
-            return collected_output
+            cmd = ['deno', 'run', '--allow-all', filename, *options]
+            return runProcess(cmd, processFn)
         except FileNotFoundError:
+            raise
             return "Error: Deno is not installed or not in the system PATH.", ""
         except Exception as e:
             traceback.print_exc()
-            return f"An unexpected error occurred: {str(e)}", ""
+            print(f"An unexpected error occurred: {str(e)}")
         
     
 
