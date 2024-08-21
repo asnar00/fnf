@@ -93,9 +93,9 @@ namespace mycontext {
     }
     export async function _test() {
         const _Hello_test = async () => {
-            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:43:2");
+            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:41:2");
             let x: number = 1;
-            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:48:2");
+            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:46:2");
         };
         const _Goodbye_test = () => {
         };
