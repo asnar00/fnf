@@ -64,12 +64,13 @@ class Typescript(Language):
         return label("function",
                     sequence(
                         set("modifier", enum("on", "after", "before", "replace")),
+                        optional(set("async", keyword("async"))),
                         set("name", word()),
                         keyword("("),
                         set("parameters", list(self.variable())),
                         keyword(")"),
                         optional(sequence(keyword(":"), 
-                                        set("returnType", word()))),
+                                        set("returnType", toEnd("{")))),
                         self.indent(),
                         set("body", toUndent()),
                         self.undent()))
@@ -77,7 +78,28 @@ class Typescript(Language):
     def test(self):
         return label("test", sequence(keyword(">"),
                                 set("code", toEnd("\n"))))
+    #---------------------------------------------------------------------------------
+    # concurrency: figure out whether a function is async
+
+    def is_function_async(self, fn: dict) -> bool:
+        if "async" in fn:
+            return True
+        if "returnType" in fn and "Promise" in str(fn["returnType"]):
+            return True
+        if "body" in fn and "await" in str(fn["body"]):
+            return True
+        return False
     
+    # replace all calls to async functions with (await xyz) calls
+    def add_awaits(self, body: str, asyncFns: dict) -> str:
+        for fn in asyncFns:
+            # rexep that matches fn, open-bracket, anything, close-bracket
+            pattern = f'({fn}\\s*\\([^\\)]*\\))'
+            # find all matches and replace with "await xxx"
+            body = re.sub(pattern, r'(await \1)', body)
+            
+        return body
+        
     #---------------------------------------------------------------------------------
     # output code ... eventually should just use the parser stuff above !
     
@@ -117,7 +139,7 @@ class Typescript(Language):
         decl += f' = {var["value"]};' if "value" in var else ";"
         out.pushLine(decl, var["name"].sourceLocation())
     
-    def output_function(self, out: SourceFile, fnName: str, functions: List[dict]):
+    def output_function(self, out: SourceFile, fnName: str, functions: List[dict], asyncFunctions: dict):
         def paramDeclStr(fn: dict) -> str:
             params = ""
             for i, param in enumerate(fn["parameters"]):
@@ -126,8 +148,14 @@ class Typescript(Language):
                 params += f' = {param["value"]}' if "value" in param else ""
                 params += ", " if i < len(fn["parameters"])-1 else ""
             return params
-        def returnTypeStr(fn: dict) -> str:
-            return f' : {fn["returnType"]}' if "returnType" in fn else ""
+        def returnTypeStr(fn: dict, isAsync: bool) -> str:
+            if isAsync:
+                rtype = str(fn["returnType"]).strip() if "returnType" in fn else "void"
+                if not rtype.startswith("Promise<"):
+                    rtype = f'Promise<{rtype}>'
+                return f' : {rtype}'
+            else:
+                return f' : {fn["returnType"]}' if "returnType" in fn else ""
         def paramCallStr(fn: dict) -> str:
             params = ""
             for i, param in enumerate(fn["parameters"]):
@@ -137,11 +165,15 @@ class Typescript(Language):
         
         # preamble
         fn = functions[0]
-        returnType = functions[0]["returnType"] if "returnType" in functions[0] else None
-        out.pushLine(f'    export function {fn["name"]}({paramDeclStr(fn)}){returnTypeStr(fn)} {{')
+        isAsync = fnName in asyncFunctions
+        asyncKeyword = "async " if isAsync else ""
+        returnType = str(functions[0]["returnType"]).strip() if "returnType" in functions[0] else None
+        if returnType and returnType.startswith("Promise<"):
+            returnType = returnType[8:-1]
+        out.pushLine(f'    export {asyncKeyword}function {fn["name"]}({paramDeclStr(fn)}){returnTypeStr(fn, isAsync)} {{')
         
-        if returnType:
-            out.pushLine(f'        var _result: {fn["returnType"]};')
+        if returnType!="":
+            out.pushLine(f'        var _result: {returnType+"|" if returnType else ""}undefined;')
 
         existing = SourceFile()
         for fn in functions:
@@ -150,9 +182,13 @@ class Typescript(Language):
             newBlock.pushLine(f'        // ------------------------ {fn["_feature"]} ------------------------', fn["name"].sourceLocation())
             call = '        '
             if returnType: call += f'_result = '
-            call += f'(() => {{'
+            awaitKeyword = "await " if "_async" in fn else ""
+            asyncKeyword = "async " if "_async" in fn else ""
+            call += f'{awaitKeyword}({asyncKeyword}() => {{'
             newBlock.pushLine(call)
-            lines = str(fn["body"]).split("\n")[:-1]
+            body = str(fn["body"])
+            body = self.add_awaits(body, asyncFunctions)
+            lines = body.split("\n")[:-1]
             loc = fn["body"].sourceLocation()
             path = loc.path
             lineIndex = loc.lineIndex
@@ -160,13 +196,19 @@ class Typescript(Language):
                 newBlock.pushLine(f'{'        '}{'    ' if i==0 else ''}{line}', SourceLocation(path, lineIndex+i))
             newBlock.pushLine(f'        }})();')
 
-            if modifier == "on" or modifier == "after":            
+            if modifier == "on":
+                if existing.code == "":
+                    existing = newBlock
+            elif modifier == "after":            
                 existing.appendSource(newBlock)
             elif modifier == "before":
                 if returnType:
                     newBlock.pushLine(f'        if (_result != undefined) return _result;')
                 newBlock.appendSource(existing)
                 existing = newBlock
+            elif modifier == "replace":
+                existing = newBlock
+
         out.appendSource(existing)
 
         # post-amble
@@ -174,16 +216,28 @@ class Typescript(Language):
             out.pushLine(f'        return _result;')
         out.pushLine(f'    }}')
         
-    def output_tests(self, out: SourceFile, features: List[dict]):
-        out.pushLine(f'    export function _test() {{')
+    def output_tests(self, out: SourceFile, features: List[dict], asyncFunctions: dict):
+        asyncKeyword = "async " if len(asyncFunctions) > 0 else ""
+        out.pushLine(f'    export {asyncKeyword}function _test() {{')
         for feature in features:
             tests = []
             for component in feature["components"]:
                 if component["_type"] == "test":
                     tests.append(component)
-            out.pushLine(f'        const _{feature["name"]}_test = () => {{')
+            asyncCodes = []
+            isAsync = False
             for test in tests:
                 code = str(test["code"])
+                asyncCode = self.add_awaits(code, asyncFunctions)
+                asyncCodes.append(asyncCode)
+                if code != asyncCode:
+                    isAsync = True
+            asyncKeyword = "async " if isAsync else ""
+            feature["_isTestAsync"] = isAsync
+            out.pushLine(f'        const _{feature["name"]}_test = {asyncKeyword}() => {{')
+            for test in tests:
+                code = str(test["code"])
+                code = self.add_awaits(code, asyncFunctions)
                 loc = test["code"].sourceLocation()
                 if "==>" in code:
                     lhs = code.split("==>")[0].strip()
@@ -196,7 +250,8 @@ class Typescript(Language):
                     out.pushLine(f'            {code.strip()}', loc)
             out.pushLine(f'        }};')
         for feature in features:
-            out.pushLine(f'        try {{ _{feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')
+            awaitKeyword = "await " if feature["_isTestAsync"] else ""
+            out.pushLine(f'        try {{ {awaitKeyword}_{feature["name"]}_test(); }} catch (e) {{ console.error(e); }}')
 
         out.pushLine(f'    }}')
         

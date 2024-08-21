@@ -10,6 +10,7 @@ import subprocess
 import re
 import requests
 import shutil
+import traceback
 
 from backends.base import Backend
 from util import *
@@ -137,32 +138,82 @@ function _assert(lhs: any, rhs: any, loc: string) { if (lhs !== rhs) console.log
     
     def postamble(self, context: str) -> str:
         return f"""
-function main() {{
+async function main() {{
     if (Deno.args.indexOf("-test") >= 0) {{
         console.log("testing {context}...");
-        {context}._test();
+        await {context}._test();
         return;
     }}
 }}
 
 main();"""
 
-    def run(self, filename: str, options: List[str]=[])->str:
+    def run(self, processFn, filename: str, options: List[str]=[])->str:
         if not os.path.exists(filename):
             return f"Error: File not found: {filename}", ""
         try:
+            # Initialize an empty string to collect processed output
+            collected_output = ""
             # Run the Deno file
-            result = subprocess.run(['deno', 'run', '--allow-all', filename, *options], 
-                                    capture_output=True,
-                                    text=True,
-                                    check=True)
-            if result.stderr:
-                return result.stderr.strip()
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            return e.stderr.strip()
+            process = subprocess.Popen(['deno', 'run', '--allow-all', filename, *options], 
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+
+            if not hasattr(process.stdout, 'readline'):
+                sys.stderr.write('Unexpected type for stdout, expected file-like object.\n')
+                return "", ""
+            # Read the subprocess output line by line
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    processed_line = processFn(output).strip()
+                    log(processed_line)
+                    collected_output += processed_line + '\n'
+
+            # Read any errors
+            err = process.stderr.read()
+            if err:
+                processed_error = processFn(err)
+                collected_output += processed_error + '\n'
+
+            return collected_output
         except FileNotFoundError:
             return "Error: Deno is not installed or not in the system PATH.", ""
         except Exception as e:
+            traceback.print_exc()
             return f"An unexpected error occurred: {str(e)}", ""
+        
+    
 
+#---------------------------------------------------------------------------------
+def runDenoProcess(deno_script_path):
+    # Start the Deno script as a subprocess
+    process = subprocess.Popen(
+        ['deno', 'run', deno_script_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    # Initialize an empty string to collect processed output
+    collected_output = ""
+
+    # Read the subprocess output line by line
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            processed_line = processFn(output)
+            collected_output += processed_line + '\n'
+
+    # Read any errors
+    err = process.stderr.read()
+    if err:
+        processed_error = processFn(err)
+        collected_output += processed_error + '\n'
+
+    return collected_output

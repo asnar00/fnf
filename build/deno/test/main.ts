@@ -23,11 +23,12 @@ namespace mycontext {
         }
     }
     var my_colour : Colour =  new Colour(1, 2, 3);
-    export function hello(name: string) : number {
-        var _result: number;
+    export async function hello(name: string) : Promise<number> {
+        var _result: number|undefined;
         // ------------------------ Countdown ------------------------
-        _result = (() => {
-            countdown();
+        _result = await (async () => {
+            (await countdown());
+            return _result;
         })();
         if (_result != undefined) return _result;
         // ------------------------ Hello ------------------------
@@ -43,26 +44,47 @@ namespace mycontext {
         return _result;
     }
     export function output(msg: string, indent: number = 0) {
+        var _result: undefined;
         // ------------------------ Hello ------------------------
         (() => {
             console.log(" ".repeat(indent) + msg);
         })();
     }
+    export async function main() : Promise<void> {
+        var _result: undefined;
+        // ------------------------ Hello ------------------------
+        await (async () => {
+            (await hello("world"));
+        })();
+    }
     export function goodbye() {
+        var _result: undefined;
         // ------------------------ Goodbye ------------------------
         (() => {
             output("kthxbai.");
         })();
     }
-    export function countdown() {
+    export async function countdown() : Promise<void> {
+        var _result: undefined;
         // ------------------------ Countdown ------------------------
-        (() => {
-            output("10 9 8 7 6 5 4 3 2 1")
+        await (async () => {
+            for(let i=10; i > 0; i--) {
+                    output(`${i}`);
+                    (await sleep(100));
+                }
         })();
     }
-    export function _test() {
-        const _Hello_test = () => {
-            _assert(hello("world"), 42, "source/fnf/Hello.fnf.ts.md:48:2");
+    export async function sleep(msec: number) : Promise<void> {
+        var _result: void|undefined;
+        // ------------------------ Countdown ------------------------
+        _result = await (async () => {
+            return new Promise(resolve => setTimeout(resolve, msec));
+        })();
+        return _result;
+    }
+    export async function _test() {
+        const _Hello_test = async () => {
+            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:48:2");
             let x: number = 1;
             _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:55:2");
         };
@@ -70,7 +92,7 @@ namespace mycontext {
         };
         const _Countdown_test = () => {
         };
-        try { _Hello_test(); } catch (e) { console.error(e); }
+        try { await _Hello_test(); } catch (e) { console.error(e); }
         try { _Goodbye_test(); } catch (e) { console.error(e); }
         try { _Countdown_test(); } catch (e) { console.error(e); }
     }
@@ -79,10 +101,10 @@ namespace mycontext {
 // ----------------------------------------------------------------
 // entry point
 
-function main() {
+async function main() {
     if (Deno.args.indexOf("-test") >= 0) {
         console.log("testing mycontext...");
-        mycontext._test();
+        await mycontext._test();
         return;
     }
 }

@@ -14,4 +14,4 @@ class Backend:
     def setup(self, project_path: str): pass
     def preamble(self) -> str: pass
     def postamble(self, context: str) -> str: pass
-    def run(self, filename: str, options: List[str] =[]) -> str : pass
+    def run(self, filename: str, options: List[str] =[], processLineFn=None) -> str : pass

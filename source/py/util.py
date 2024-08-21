@@ -76,7 +76,7 @@ def scanFolder(self, ext: str) -> List[str]:
     for file in filesFound:
         dateAsString = os.path.getctime(file)
         humanReadableDate = datetime.datetime.fromtimestamp(dateAsString).isoformat()
-        log(f"  {file} : creation date {humanReadableDate}")
+        log(f"  {file} : {humanReadableDate}")
     return filesFound
 
 #---------------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class SourceFile:
             location = self.sourceLocation(iChar)
             locStr = f'[{location}]' if location != None else ""
             locStr = locStr + " " * (maxLocLen - len(locStr))
-            log(f"{locStr} {line}")
+            log(f"{(i+1)}{locStr} {line}")
             iChar += len(line) + 1
 
 #---------------------------------------------------------------------------------

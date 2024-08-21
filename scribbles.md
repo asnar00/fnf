@@ -1,6 +1,100 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+
+Okay, so we're now computing the async status of output functions thusly:
+
+- if a stub contains "await", returns a promise, or is "async" declared
+- if a stub calls another async function
+
+we're storing fine-grained stub status as func["async"], and also holding a dictionary of name=>async.
+
+Also same for tests.
+
+Behaves correctly wrt timing: countdown waits one second per number.
+Still need to implement `on` concurrency, that's the next job.
+Also tests wait for the whole console including timing, and all console lines pop out at the same time.
+Which isn't great, but it's fine for the moment. We'll do something more complex that reads console outputs line by line.
+
+so that's our to-do list for tomorrow:
+
+1. line-by-line pickup of test output
+2. `on` concurrency
+3. `main` function so we can actually run things. Auto-re-run would be nice.
+
+
+
+-----------------------------------------
+
+So let's think about on, async, time, and that kind of thing.
+
+Given that previous work is pushing us to named-result and streams-instead-of-side-effects, let's just explore what this might mean.
+
+This is code using `local` to define an output stream:
+
+    // hello.md
+    feature Hello {
+        local out: string;
+        on hello(name: string) {
+            out << `hello ${name}!`;
+        }
+        replace main() { 
+            out << hello("asnaroo");
+        }
+    }
+
+    // goodbye.md
+    feature Goodbye extends Hello {
+        on goodbye() {
+            out << "bye!";
+        }
+        after hello() {
+            goodbye();
+        }
+    }
+
+    // countdown.md
+    feature Countdown extends Hello {
+        on countdown() {
+            out << "10 9 8 7 6 5 4 3 2 1";
+        }
+        before hello() {
+            countdown();
+        }
+    }
+
+Let's think about the Colour example:
+
+    // rgb.md
+    feature RGB {
+        struct Colour {
+            red: number = 0;
+            green: number = 0;
+            blue: number = 0;
+        }
+        on (r: Colour) = add_colours(a: Colour, b: Colour) {
+            r = new Colour(a.red + b.red, a.green + b.green, a.blue + b.blue);
+        }
+    }
+
+    // alpha.md
+    feature Alpha extends RGB {
+        struct Colour {
+            alpha: number = 1;
+        }
+        on (r: Colour) = add_colours(a: Colour, b: Colour) {
+            r.a = a.alpha + b.alpha;
+        }
+    }
+
+So what should the output code look like?
+
+
+
+
+
+-------------------------------------------------------------------------------------
+
 So next step then is (deep breath) concurrency, namely the `on` keyword.
 
 A really simple way of handling all of this is to bifurcate `on` into two forms:

@@ -54,3 +54,9 @@ And we can also test the result against a known-correct value:
 > let x: number = 1;
 > my_colour.red ==> x
 ```
+
+Finally, we'll declare a `main` function that calls `hello`:
+
+    replace main() {
+        hello("world");
+    }
