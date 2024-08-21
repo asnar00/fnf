@@ -1,6 +1,13 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+DONE! on-async now works as intended. 
+The code in typescript is super gnarly.
+Needs a total refactor so that we can use the parser mechanism.
+Ultimately we need to be doing this computation at a higher level,
+and each language module takes care *only* of outputting high-level structures.
+
+---------------------------------------------------
 
 Okay, so we're now computing the async status of output functions thusly:
 
