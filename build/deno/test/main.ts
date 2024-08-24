@@ -44,7 +44,6 @@ namespace mycontext {
                 // ------------------------ Countdown ------------------------
                 (async () => {
                     (await countdown());
-                    return _result;
                 })()
             ]);
             const validResults = results.filter(result => result !== undefined);
@@ -79,7 +78,7 @@ namespace mycontext {
         await (async () => {
             for(let i=10; i > 0; i--) {
                 output(`${i}`);
-                (await wait(1000))
+                (await wait(100))
             }
         })();
     }
@@ -93,9 +92,9 @@ namespace mycontext {
     }
     export async function _test() {
         const _Hello_test = async () => {
-            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:41:2");
+            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:40:2");
             let x: number = 1;
-            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:46:2");
+            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:45:2");
         };
         const _Goodbye_test = () => {
         };

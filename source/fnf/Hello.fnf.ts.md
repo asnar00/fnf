@@ -23,7 +23,6 @@ We define our own function `output` that initially outputs to standard console. 
         console.log(" ".repeat(indent) + msg);
     }
 
-
 Let's define a little structure as well:
 
     struct Colour { 
