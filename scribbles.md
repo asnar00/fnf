@@ -1,6 +1,13 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+State of play:
+we've demonstrated the full range of parser/printer elements:
+keyword, identifier, sequence, list, anyof, enum, etc.
+
+Next step: do parse/print tests for typescript.
+Then: do the function-builder by manipulating the AST, then output in target language.
+That's next!
 
 ------------------------------------
 
