@@ -3,16 +3,14 @@
 
 This is a small program expressed in *feature normal typescript* that prints "hello world" to the console.
 
-    feature Hello extends Feature {
+    feature Hello {
 
 And here's the function that does the work; we're returning a number just to show how the code looks.
-
 
     on hello(name: string) : number {
         output(`hello, ${name}!`);
         return 42;
     }
-
 
 The `on` keyword means that we're defining a new function called `hello`.
 

@@ -176,7 +176,15 @@ def findAsyncFunctions(language: Language, functions: dict) -> dict:
                 log(f"async: {name}_{function["_feature"]}")
                 break
     log("-----------")
-    # 2 - a function is async if it calls an async function
+    # 2 - a function is async if it contains an "on" subfunction in >=2nd position
+    for name, functionList in functions.items():
+        for i in range(1, len(functionList)):
+            if functionList[i]["modifier"] == "on":
+                asyncFunctions[name] = True
+                functionList[i]["_async"] = True
+                log(f"async: {name}_{functionList[i]["_feature"]}")
+                break
+    # 3 - a function is async if it calls an async function
     done = False
     safeCount = 10000
     while (not done):

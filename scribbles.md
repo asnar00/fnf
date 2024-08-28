@@ -1,6 +1,141 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+
+------------------------------------
+
+=> just fucking do it.
+
+OK so this was a great week and lots of shit got done.
+BIG learning was "I finally get parsers"
+
+The next obvious thing is to be able to directly manipulate AST entities (functions/features/etc) and have the backend spit out the right code.
+
+To do this, we need a new parser framework.
+
+===>
+
+So let's think about how the same interface (calling parser functions) can also be used to *print* things out.
+
+Let's take a really simple, one the feature declaration. Let's also modify the "Source" class to be able to print stuff to the file, including things that contain sources! This lets us handle source mapping without really thinking about it too much.
+
+    sequence(keyword("feature"), 
+                    set("name", word()),
+                    optional(sequence(keyword("extends"), set("parent", word()))))
+
+So let's think about how this might actually play out with print.
+We'd parse this and get an AST node: a dictionary like this:
+
+    { "_type": "feature", "name": "MyFeature", "parent", "AnotherFeature" }
+
+"MyFeature" and "AnotherFeature" are not strings, they're actually Source instances pointing into the original code, but we'll skip over this detail for now.
+
+So let's start from the outside:
+
+    print_sequence(ast, out, *printerFns):
+        pos = out.start
+        for printerFn in printerFns:
+            if printerFn(ast, out)==False:
+                out.reset(pos)
+                return False
+        return True
+
+    print_set(ast, out, varname, printerFn):
+        if varname in ast:
+            return printerFn(ast[varname], out)
+        else: 
+            return False
+
+    print_optional(ast, out, printerFn):
+        pos = out.start
+        if printerFn(ast, out): 
+            return True
+        else:
+            out.start = pos
+            return False
+
+    print_keyword(ast, out, val):
+        out.print(val)
+        return True
+
+    print_word(ast, out):
+        if isinstance(ast, Source):
+            out.print(ast)
+            return True
+        else:
+            return False
+
+So what should happen here is:
+
+    print_sequence(
+        print_keyword               => "feature"
+        print_set
+            print_word              => "MyFeature" [including sourcemap]
+        optional
+            print_sequence
+                print_keyword       => "extends"
+                print_set           succeeds
+                    print_word      => "AnotherFeature"
+
+So if we don't have "extends", then print_set will fail, print_sequence will fail, and optional will reset.
+
+The key thing is the signature.
+
+Given
+
+    fn(args)
+
+There's:
+
+    parse_fn(in, args) -> ast
+
+and
+
+    print_fn(ast, out, args) -> bool
+
+When we want to parse, we'll do 
+
+    ast = generate_parser(fn)(in)
+
+When we want to print, we'll do 
+
+    generate_printer(fn)(ast, out)
+
+So there's something that fn(args) has to return, and it's either:
+
+    lambda x : parse_fn(x, args)
+
+OR
+
+    lambda x y : print_fn(x, y, args)
+
+So what if it returns a function that can call either of those?
+
+    def fn(*args):
+        return lambda b x y : if b: parse_fn(x, args) else print_fn(x, y, args)
+
+and then you just either call
+
+    fn(True, source, None)      to parse
+
+or
+
+    fn(False, ast, source)      to print
+
+et voila. A little convoluted. You could do it like:
+
+    def fn(*args):
+        return lambda obj x y obj.fn(x, y, *args)
+
+and then you have parser, printer, whatever. That's the right way.
+
+OK so the next thing is we implement this, and it passes the async test, but the code is nicer.
+
+
+
+
+
+----------------------------------------------------
 DONE! on-async now works as intended. 
 The code in typescript is super gnarly.
 Needs a total refactor so that we can use the parser mechanism.

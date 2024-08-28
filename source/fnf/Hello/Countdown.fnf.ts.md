@@ -10,7 +10,7 @@ We declare a new function to count down from 10:
     on countdown() {
         for(let i=10; i > 0; i--) {
             output(`${i}`);
-            wait(100)
+            wait(100);
         }
     }
 

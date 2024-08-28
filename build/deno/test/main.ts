@@ -78,7 +78,7 @@ namespace mycontext {
         await (async () => {
             for(let i=10; i > 0; i--) {
                 output(`${i}`);
-                (await wait(100))
+                (await wait(100));
             }
         })();
     }
@@ -92,9 +92,9 @@ namespace mycontext {
     }
     export async function _test() {
         const _Hello_test = async () => {
-            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:40:2");
+            _assert((await hello("world")), 42, "source/fnf/Hello.fnf.ts.md:39:2");
             let x: number = 1;
-            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:45:2");
+            _assert(my_colour.red, x, "source/fnf/Hello.fnf.ts.md:44:2");
         };
         const _Goodbye_test = () => {
         };
