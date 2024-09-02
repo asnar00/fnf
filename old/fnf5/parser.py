@@ -7,7 +7,9 @@ import os
 import re
 from typing import List
 import copy
-
+from threading import Thread
+import subprocess
+import datetime
 
 #----------------------------------------------------------------------------------------
 # switch-on-and-offable logging
@@ -35,13 +37,127 @@ def clear_console():
     os.system('clear')  # For Linux/macOS
 
 #----------------------------------------------------------------------------------------
+# files
+
+def readTextFile(path: str) -> str:
+    with open(path, "r") as file:
+        return file.read()
+    
+def writeTextFile(path: str, text: str):
+    # ensure directories exist:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as file:
+        file.write(text)
+
+def currentWorkingDirectory() -> str:
+    return os.getcwd()
+
+def getCreationTimestamp(file_path):
+    try:
+        stat = os.stat(file_path)
+        return stat.st_birthtime
+    except AttributeError:
+        # This may not be available on all systems
+        return None
+
+def scanFolder(self, ext: str) -> List[str]:
+    cwd = currentWorkingDirectory()
+    # scan the directory for .fnf.md files
+    filesFound = []
+    for root, dirs, files in os.walk(cwd):
+        for file in files:
+            if file.endswith(ext):
+                filesFound.append(os.path.join(root, file))
+    # sort files into ascending order of creation-date
+    filesFound.sort(key=lambda x: getCreationTimestamp(x))
+    filesFound= [file.replace(cwd+"/", "") for file in filesFound]
+    log("filesFound:")
+    for file in filesFound:
+        dateAsString = os.path.getctime(file)
+        humanReadableDate = datetime.datetime.fromtimestamp(dateAsString).isoformat()
+        log(f"  {file} : {humanReadableDate}")
+    return filesFound
+
+#----------------------------------------------------------------------------------------
+# shell / config stuff for installing things
+
+# runs a shell command, optionally processes output+errors line by line, returns collected output
+def runProcess(cmd: List[str], processFn=(lambda x: x)) -> str:
+    collected_output = ""
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    # Helper function to process and log output
+    def process_output(stream, append_to):
+        nonlocal collected_output
+        while True:
+            line = stream.readline()
+            if line:
+                processed_line = processFn(line).strip()
+                log(processed_line)
+                append_to.append(processed_line + '\n')
+            else:
+                break
+
+    # Using lists to collect output as strings are immutable
+    stdout_output = []
+    stderr_output = []
+
+    # Start threads to handle stdout and stderr
+    stdout_thread = Thread(target=process_output, args=(process.stdout, stdout_output))
+    stderr_thread = Thread(target=process_output, args=(process.stderr, stderr_output))
+
+    stdout_thread.start()
+    stderr_thread.start()
+    stdout_thread.join()
+    stderr_thread.join()
+
+    # Collect final outputs
+    collected_output = ''.join(stdout_output) + ''.join(stderr_output)
+    return collected_output
+
+# returns the correct shell config file path depending on the shell in use
+def get_shell_config_file():
+    shell = os.environ.get('SHELL', '')
+    home = os.path.expanduser('~')
+    if 'zsh' in shell:
+        return os.path.join(home, '.zshrc')
+    elif 'bash' in shell:
+        return os.path.join(home, '.bash_profile')
+    else:
+        return os.path.join(home, '.profile')
+
+# ensures that new_path is added to the PATH variable
+def update_PATH(new_path):
+    shell_config = get_shell_config_file()
+    path_entry = f'export PATH="{new_path}:$PATH"'
+    
+    # Check if path already exists in the file
+    with open(shell_config, "r") as f:
+        content = f.read()
+        if new_path in content:
+            log(f"PATH entry for {new_path} already exists in {shell_config}")
+            return
+
+    # If not, append it to the file
+    with open(shell_config, "a") as f:
+        f.write(f'\n{path_entry}\n')
+    
+    log(f"Updated {shell_config} with new PATH entry: {new_path}")
+
+    # Source the shell configuration file
+    source_command = f"source {shell_config}"
+    subprocess.run(source_command, shell=True, executable="/bin/bash")
+    
+    # Update current environment
+    os.environ["PATH"] = f"{new_path}:{os.environ['PATH']}"
+
+#----------------------------------------------------------------------------------------
 # SourceFile is a filename
 
 class SourceFile:
     def __init__(self, filename: str):
         self.filename = filename
-        with open(filename, 'r') as f:
-            self.text = f.read()
+        self.text = readTextFile(filename)
 
 #----------------------------------------------------------------------------------------
 # SourceLocation is a SourceFile, line number, and column number (default 0)
@@ -127,9 +243,9 @@ class Code:
         return self.__str__()
 
 #----------------------------------------------------------------------------------------
-# CodeReader is Code, plus a read pointer and an end index
+# Reader is Code, plus a read pointer and an end index
 
-class CodeReader:
+class Reader:
     def __init__(self, code: Code, iChar: int = 0, iEnd: int = -1):
         self.code = code
         self.iChar = iChar
@@ -147,8 +263,9 @@ class CodeReader:
         self.iChar += self.nChars
         self.nChars = 0
 
-    def copyAndAdvance(self) -> str:
-        result = CodeReader(self.code, self.iChar, self.iChar + self.nChars)
+    def copyAndAdvance(self, iChar: int=None) -> 'Reader':
+        iChar = iChar if iChar else self.iChar
+        result = Reader(self.code, iChar, iChar + self.nChars)
         self.advance()
         return result
 
@@ -156,11 +273,15 @@ class CodeReader:
         self.iChar = iChar
         self.nChars = 0
     
-    def match(self, regexp: str) -> bool: # returns True if regexp matches at iChar
+    def match(self, regexp: str, iChar: int=None) -> bool: # returns True if regexp matches at iChar
+        iChar = self.iChar if iChar == None else iChar
         pattern = re.compile(regexp)
-        match = pattern.match(self.code.text, self.iChar, self.iEnd)
+        match = pattern.match(self.code.text, iChar, self.iEnd)
         self.nChars = (match.end() - match.start()) if match else 0
         return (self.nChars > 0)
+    
+    def char(self, iChar: int) -> str:
+        return self.code.text[iChar]
     
     def __str__(self):
         return self.code.text[self.iChar:self.iEnd]
@@ -169,9 +290,9 @@ class CodeReader:
         return self.__str__()
 
 #----------------------------------------------------------------------------------------
-# CodeWriter is Code, plus a write pointer
+# Writer is Code, plus a write pointer
 
-class CodeWriter:
+class Writer:
     def __init__(self, code: Code):
         self.code = code
         self.indentLevel = 0
@@ -182,7 +303,7 @@ class CodeWriter:
         for arg in args:
             if isinstance(arg, str):
                 self.toWrite += arg
-            elif isinstance(arg, CodeReader):
+            elif isinstance(arg, Reader):
                 self.location = arg.location()
                 self.toWrite += arg.code.text[arg.iChar:arg.iEnd]
 
@@ -197,25 +318,24 @@ class CodeWriter:
         self.toWrite = ""
         self.location = None
 
-    def copy(self)-> 'CodeWriter':
+    def copy(self)-> 'Writer':
         newCode = copy.copy(self.code)
         newWriter = copy.copy(self)
         newWriter.code = newCode
         return newWriter
     
-    def restore(self, writer: 'CodeWriter'):
+    def restore(self, writer: 'Writer'):
         self.code.text = writer.code.text
         self.code.map = writer.code.map
         self.indentLevel = writer.indentLevel
         self.toWrite = writer.toWrite
         self.location = writer.location
-        
 
 #----------------------------------------------------------------------------------------
 # Error is a message and a SourceLocation
 
 class Error:
-    def __init__(self, message: str, reader: CodeReader):
+    def __init__(self, message: str, reader: Reader):
         self.message = message
         self.location = reader.location()
 
@@ -250,7 +370,7 @@ class Parser(Executor):
         ast.update(subAst)
         return ast
 
-    def keyword(self, reader: CodeReader, ast, value: str) -> dict:
+    def keyword(self, reader: Reader, ast, value: str) -> dict:
         reader.skipWhitespace()
         regex = re.escape(value)
         if reader.match(regex):
@@ -258,7 +378,7 @@ class Parser(Executor):
             return {}
         return Error(f"Expected keyword '{value}'", reader)
 
-    def identifier(self, reader, ast) -> CodeReader:
+    def identifier(self, reader, ast) -> Reader:
         reader.skipWhitespace()
         if reader.match(r"[a-zA-Z_][a-zA-Z0-9_]*"):
             return reader.copyAndAdvance()
@@ -291,7 +411,7 @@ class Parser(Executor):
         reader.skipWhitespace()
         return {}
     
-    def list(self, reader : CodeReader, ast, parserFn):
+    def list(self, reader : Reader, ast, parserFn):
         results = []
         safeCount = 1000
         while safeCount > 0:
@@ -326,6 +446,30 @@ class Parser(Executor):
             else:
                 reader.restore(reader.iChar)
         return Error(f"Expected one of {values}", reader)
+    
+    def toNextOuter(self, reader: Reader, ast, find: List[str], startDepth: int):
+        reader.skipWhitespace()
+        depth = startDepth
+        inQuote = False
+        iChar = reader.iChar
+        i = reader.iChar
+        while i < reader.iEnd:
+            c = reader.char(i)
+            if not inQuote:
+                if depth == 0 and reader.match(re.escape(find), i):
+                    return reader.copyAndAdvance(i)
+                elif c in "{([":
+                    depth += 1
+                elif c in "})]":
+                    depth -= 1
+                elif c == '"':
+                    inQuote = True
+            else:
+                if c == '"' and reader.char(i-1) != "\\":
+                    inQuote = False
+            i += 1
+        return reader
+
 
 #----------------------------------------------------------------------------------------
 # Printer does printing
@@ -343,7 +487,7 @@ class Printer(Executor):
         return True
 
     def identifier(self, writer, ast):
-        if isinstance(ast, CodeReader):
+        if isinstance(ast, Reader):
             writer.write(" ")
             writer.write(ast)
             return True
@@ -396,7 +540,7 @@ class Printer(Executor):
         return False
     
     def enum(self, writer, ast, *values):
-        if not isinstance(ast, CodeReader):
+        if not isinstance(ast, Reader):
             return False
         writer.write(ast)
         return True
@@ -438,4 +582,6 @@ def anyof(*fns):
 def enum(*values):
     return lambda executor, reader, ast : executor.enum(reader, ast, *values)
 
+def toNextOuter(find: List[str], startDepth: int):
+    return lambda executor, reader, ast : executor.toNextOuter(reader, ast, find, startDepth)
 #----------------------------------------------------------------------------------------

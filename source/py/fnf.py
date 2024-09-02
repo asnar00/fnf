@@ -1,326 +1,592 @@
 # ᕦ(ツ)ᕤ
 # fnf.py
-# author: asnaroo
-# processes .fnf.*.md files => .* files
-# initially supporting ts, py, cpp
-# to auto-rerun this when this file or source mds change, use
-# (find source/fnf source/py -type f | entr -r python3 source/py/fnf.py)
-
-#---------------------------------------------------------------------------------
-# import mechanics
-
-import sys
-from pathlib import Path
-
-# Add the py directory to the Python path
-py_root = Path(__file__).resolve().parent
-sys.path.append(str(py_root))
-
-#---------------------------------------------------------------------------------
-# batteries
+# we're going to do everything in one place
 
 import os
-import re
-import json
-from typing import List
-from typing import Tuple
+from typing import List, Tuple
+from threading import Thread
+import subprocess
+import datetime
+import inspect
 
-#---------------------------------------------------------------------------------
-# local imports
+#--------------------------------------------------------------------------------------------------
+# logging
 
-from util import *
-from languages import Language, Typescript
-from backends import Backend, Deno
+global log_enabled
+log_enabled: bool = False
 
-#---------------------------------------------------------------------------------
+def log_enable():
+    global log_enabled
+    log_enabled = True
 
-def testSourceFile():
-    log_enable()
-    log("testExtractSource")
-    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    sourceFile.show()
+def log_disable():
+    global log_enabled
+    log_enabled = False
 
-#---------------------------------------------------------------------------------
+def log(*args):
+    global log_enabled
+    if log_enabled:
+        print(*args)
 
-def testError():
-    log_enable()
-    log("testError")
-    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    sourceFile.show()
-    source = Source(sourceFile)
-    source.set(50)
-    error = Error("test error", source)
-    log(error)
+def log_assert(check_against, *args):
+    # print the file/line of the caller fn
+    frame = inspect.currentframe()
+    frame = inspect.getouterframes(frame)[1]
+    sourcePos = f"{"/".join(frame.filename.split("/")[-3:])}:{frame.lineno} "
+    # print the args to a string
+    s = " ".join([str(arg) for arg in args])
+    if s == check_against.strip():
+        log("\npassed:", sourcePos)
+        log(s)
+    else:
+        print("\nFAILED!", sourcePos)
+        print(s)
 
-#---------------------------------------------------------------------------------
+def log_c(*args):
+    if log_enabled:
+        print(*args, end="")
 
-def testParser():
-    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    log_enable()
-    log("testParser")
-    log("source: ------------------------------------")
-    sourceFile.show()
-    log("---------------------------------------------")
-    log_disable()
-    result = sourceFile.parse()
-    log_enable()
-    log("result:", result)
+def clear_console():
+    os.system('clear')  # For Linux/macOS
 
-#---------------------------------------------------------------------------------
-# code generation
+#--------------------------------------------------------------------------------------------------------------------------
+# file system low-level
 
-# read markdown file, extract code, parse it
-def parseFeature(sourceFile: SourceFile, language: Language) -> dict | Error:
-    parser = language.feature()
-    source = Source(sourceFile)
-    result = parser(source)
-    return result
+def readTextFile(path: str) -> str:
+    with open(path, "r") as file:
+        return file.read()
     
+def writeTextFile(path: str, text: str):
+    # ensure directories exist:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as file:
+        file.write(text)
 
+def currentWorkingDirectory() -> str:
+    return os.getcwd()
 
-# given a list of parsed features, return source code for the chosen language/backend
-def generateCode(contextName: str, features: List[dict], language: Language, backend: Backend) -> SourceFile:
-    out = SourceFile()
+def getCreationTimestamp(file_path):
+    try:
+        stat = os.stat(file_path)
+        return stat.st_birthtime
+    except AttributeError:
+        # This may not be available on all systems
+        return None
 
-    vars = {}  # map name => dict
-    structs = {}  # map name => dict
-    functions = {}  # map name => List[dict]
+def scanFolder(self, ext: str) -> List[str]:
+    cwd = currentWorkingDirectory()
+    # scan the directory for .fnf.md files
+    filesFound = []
+    for root, dirs, files in os.walk(cwd):
+        for file in files:
+            if file.endswith(ext):
+                filesFound.append(os.path.join(root, file))
+    # sort files into ascending order of creation-date
+    filesFound.sort(key=lambda x: getCreationTimestamp(x))
+    filesFound= [file.replace(cwd+"/", "") for file in filesFound]
+    log("filesFound:")
+    for file in filesFound:
+        dateAsString = os.path.getctime(file)
+        humanReadableDate = datetime.datetime.fromtimestamp(dateAsString).isoformat()
+        log(f"  {file} : {humanReadableDate}")
+    return filesFound
 
-    # first put everything together
-    for feature in features:
-        if err(feature):
-            print(feature)
-            exit(0)
-        for component in feature["components"]:
-            component["_feature"] = feature["name"]
-            if component["_type"] == "test":
-                continue
-            name = str(component["name"])
-            if component["_type"] == "local":
-                vars[name] = component
-            elif component["_type"] == "struct":
-                if name not in structs:
-                    structs[name] = component
-                else:
-                    structs[name]["properties"].extend(component["properties"])
-            elif component["_type"] == "function":
-                if name in functions:
-                    functions[name].append(component)
-                else:
-                    functions[name] = [component]
+#---------------------------------------------------------------------------------
+# shell / config stuff for installing things
 
-    # deal with async functions
-    log_enable()
-    asyncFns = findAsyncFunctions(language, functions)
-    log_disable()
+# runs a shell command, optionally processes output+errors line by line, returns collected output
+def runProcess(cmd: List[str], processFn=(lambda x: x)) -> str:
+    collected_output = ""
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    # fnf preamble
-    out.pushLine("// ᕦ(ツ)ᕤ")
-    out.pushLine("// generated by fnf.py")
-    out.pushLine("")
-    out.pushLine("// ----------------------------------------------------------------")
-    out.pushLine("// logging functions")
+    # Helper function to process and log output
+    def process_output(stream, append_to):
+        nonlocal collected_output
+        while True:
+            line = stream.readline()
+            if line:
+                processed_line = processFn(line).strip()
+                log(processed_line)
+                append_to.append(processed_line + '\n')
+            else:
+                break
 
-    # then output the backend preamble
-    lines = backend.preamble().split("\n")
-    for line in lines:
-        out.pushLine(line)
-    out.pushLine("")
-    out.pushLine("// ----------------------------------------------------------------")
-    out.pushLine("// context")
-    out.pushLine("")
+    # Using lists to collect output as strings are immutable
+    stdout_output = []
+    stderr_output = []
 
-    # then output a namespace for the context
-    language.output_openContext(out, contextName)
+    # Start threads to handle stdout and stderr
+    stdout_thread = Thread(target=process_output, args=(process.stdout, stdout_output))
+    stderr_thread = Thread(target=process_output, args=(process.stderr, stderr_output))
 
-    log_disable()
-    log("structs:")
-    for name, struct in structs.items():
-        log(f"  {name}: {struct}")
-        language.output_struct(out, struct)
+    stdout_thread.start()
+    stderr_thread.start()
+    stdout_thread.join()
+    stderr_thread.join()
 
-    log("\nvars:")
-    for name, var in vars.items():
-        log(f"  {name}: {var}")
-        language.output_variable(out, var)
+    # Collect final outputs
+    collected_output = ''.join(stdout_output) + ''.join(stderr_output)
+    return collected_output
 
-    log("\nfunctions:")
-    for name, functionList in functions.items():
-        log(f"  {name}: {functionList}")
-        language.output_function(out, name, functionList, asyncFns)
+# returns the correct shell config file path depending on the shell in use
+def get_shell_config_file():
+    shell = os.environ.get('SHELL', '')
+    home = os.path.expanduser('~')
+    if 'zsh' in shell:
+        return os.path.join(home, '.zshrc')
+    elif 'bash' in shell:
+        return os.path.join(home, '.bash_profile')
+    else:
+        return os.path.join(home, '.profile')
 
-    language.output_tests(out, features, asyncFns)
+# ensures that new_path is added to the PATH variable
+def update_PATH(new_path):
+    shell_config = get_shell_config_file()
+    path_entry = f'export PATH="{new_path}:$PATH"'
+    
+    # Check if path already exists in the file
+    with open(shell_config, "r") as f:
+        content = f.read()
+        if new_path in content:
+            log(f"PATH entry for {new_path} already exists in {shell_config}")
+            return
 
-    language.output_closeContext(out)
+    # If not, append it to the file
+    with open(shell_config, "a") as f:
+        f.write(f'\n{path_entry}\n')
+    
+    log(f"Updated {shell_config} with new PATH entry: {new_path}")
 
-    out.pushLine("")
-    out.pushLine("// ----------------------------------------------------------------")
-    out.pushLine("// entry point")
+    # Source the shell configuration file
+    source_command = f"source {shell_config}"
+    subprocess.run(source_command, shell=True, executable="/bin/bash")
+    
+    # Update current environment
+    os.environ["PATH"] = f"{new_path}:{os.environ['PATH']}"
 
-    # finally output the backend postamble
-    lines = backend.postamble(contextName).split("\n")
-    for line in lines:
-        out.pushLine(line)
+#---------------------------------------------------------------------------------
+# files and stuff
+
+class SourceFile:
+    def __init__(self, path: str, text: str=""):
+        self.path = path
+        self.text = readTextFile(path) if path else text.strip()
+
+class SourceLocation:
+    def __init__(self, path: str, line: int, column: int):
+        self.path = path
+        self.line = line
+        self.column = column
+
+class SourceMap:
+    def __init__(self):
+        self.map : List[Tuple[int, SourceLocation]] = []       # list of (int, SourceLocation) tuples
+
+#---------------------------------------------------------------------------------
+# Lex is a lexeme: a source file, plus a position and range
+
+class Lex:
+    def __init__(self, type: str, source: SourceFile, iStart: int, iEnd: int):
+        self.type = type
+        self.source = source
+        self.iStart = iStart
+        self.iEnd = iEnd
+
+    def __str__(self):
+        return self.source.text[self.iStart:self.iEnd]
+    
+    def __repr__(self):
+        return self.__str__()
+
+# lexer takes source and turns it into a list of lexemes
+def lexer(source: SourceFile) -> List[Lex]:
+    i = 0
+    safeCount = 10000
+    out : List[Lex] = []
+    inQuotes : bool = False
+    whichQuote : str = ""
+    iQuoteStart : int = 0
+    while i < len(source.text) and safeCount > 0:
+        safeCount -= 1
+        c = source.text[i]
+        cp = source.text[i-1] if i > 0 else ""
+        cn = source.text[i+1] if i < len(source.text) - 1 else ""
+        if inQuotes:
+            if c == whichQuote:
+                if i > 0 and cp != '\\': 
+                    out.append(Lex('quote', source, iQuoteStart, i+1))
+                    inQuotes = False
+        else:
+            if c in '`\"\'':  # start of quotes
+                inQuotes = True
+                whichQuote = c
+                iQuoteStart = i
+            elif c in ' \t\n\r': pass       # skip whitespace
+            elif c in '{}[]():;,.': out.append(Lex('punct', source, i, i+1))
+            elif c in '!@$%^&*-+=/?<>~': 
+                j = (i+2) if cn in '!@$%^&*-+=/?<>~' else (i+1)
+                out.append(Lex('op', source, i, j))
+                i = j-1
+            elif c.isalpha() or c == '_':
+                j = i+1
+                while j < len(source.text) and (source.text[j].isalnum() or source.text[j] == '_'):
+                    j += 1
+                out.append(Lex('id', source, i, j))
+                i = j-1
+            elif c.isdigit():
+                j = i+1
+                while j < len(source.text) and source.text[j].isdigit():
+                    j += 1
+                out.append(Lex('num', source, i, j))
+                i = j-1
+        i = i + 1
     return out
 
-# return dictionary mapping function names => async/non-async; mark sub-functions async if they call async functions
-def findAsyncFunctions(language: Language, functions: dict) -> dict:
-    log("findAsyncFunctions ----------------------------")
-    asyncFunctions = {}
-    # 1 - find all leaf async functions
-    for name, functionList in functions.items():
-        for function in functionList:
-            if language.is_function_async(function):
-                asyncFunctions[name] = True
-                function["_async"] = True
-                log(f"async: {name}_{function["_feature"]}")
-                break
-    log("-----------")
-    # 2 - a function is async if it contains an "on" subfunction in >=2nd position
-    for name, functionList in functions.items():
-        for i in range(1, len(functionList)):
-            if functionList[i]["modifier"] == "on":
-                asyncFunctions[name] = True
-                functionList[i]["_async"] = True
-                log(f"async: {name}_{functionList[i]["_feature"]}")
-                break
-    # 3 - a function is async if it calls an async function
-    done = False
-    safeCount = 10000
-    while (not done):
-        foundAsyncFunction = False
-        safeCount -= 1
-        if safeCount <= 0:
-            log("handleAsyncFunctions: too many iterations")
-            break
-        for name, functionList in functions.items():
-            if name in asyncFunctions:
-                continue
-            for fn in functionList:
-                body = str(fn["body"])
-                # match any alphanumeric word followed by an open paren
-                matches = re.findall(r'\b\w+\(', body)
-                for match in matches:
-                    callee = match[:-1]
-                    if callee in asyncFunctions:
-                        asyncFunctions[name] = True
-                        fn["_async"] = True
-                        foundAsyncFunction = True
-                        log(f"async caller: {name}_{fn["_feature"]} calls {callee}")
-                        break
-        if not foundAsyncFunction:
-            done = True
-    log("async functions:")
-    for name in asyncFunctions:
-        log(f"  {name}")
-    log("---------------------------------------------")
-    return asyncFunctions
 
-def testCodeGeneration():
-    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    language = Typescript()
-    backend = Deno()
-    feature = parseFeature(sourceFile, language)
-    log_enable()
-    log("result:", feature)
-    if err(feature):
-        return
-    log("---------------------------------------------")
-    outFile = generateCode("mycontext", [feature], language, backend)
-    log("---------------------------------------------")
-    log("generated code:")
-    outFile.show()
-    writeTextFile("build/deno/test/main.ts", outFile.code)
+test_code = """
+feature Hello extends Feature {
+    on hello(name: string) { 
+        console.log(`Hello, ${name}!`);
+    }
+    replace main() {
+        hello("world");
+    }
+}
+"""
+
+def test_lexer(source: SourceFile):
+    log("test_lexer")
+    lexemes = lexer(source)
+    out = """
+    [feature, Hello, extends, Feature, {, on, hello, (, name, :, string, ), {, console, ., log, (, `Hello, ${name}!`, ), ;, }, replace, main, (, ), {, hello, (, "world", ), ;, }, }]
+    """
+    log_assert(out, lexemes)
+    return lexemes
 
 #---------------------------------------------------------------------------------
+# parse/print helpers
 
-def remove_ansi_sequences(text):
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
+# Reader reads forward in a lexeme-list
+class Reader:
+    def __init__(self, lexemes: List[Lex]):
+        self.lexemes = lexemes
+        self.i = 0
 
-def processLog(output: str, outFile: SourceFile) -> str:
-    output = remove_ansi_sequences(output)
-    starts = outFile.lineStarts()
-    def map_function(file, line, char):
-        iChar = starts[int(line)-1]
-        location = outFile.sourceLocation(iChar)
-        if location == None:
-            return f"file://{file}:{line}:{char}"
-        return str(location)
-    def replace_callback(match):
-        file, line, char = match.groups()
-        return map_function(file, line, char)
-    # Assuming 'content' contains your file contents
-    pattern = r'file://([^:]+):(\d+):(\d+)'
-    new_output = re.sub(pattern, replace_callback, output)
-    return new_output
-
-def testBackend():
-    sourceFile = SourceFile("source/fnf/Hello.fnf.ts.md")
-    language = Typescript()
-    backend = Deno()
-    feature = parseFeature(sourceFile, language)
-    if err(feature): 
-        log_enable()
-        log(feature)
-        return
-    outFile = generateCode("mycontext", [feature], language, backend)
-    writeTextFile("build/deno/test/main.ts", outFile.code)
-    backend = Deno()
-    #backend.ensure_latest_version()
-    #backend.setup("build/deno/test")
-    log_enable()
-    log("testBackend")
-    log("running main.ts")
-    processFn = lambda line: processLog(line, outFile)
-    output = backend.run(processFn, "build/deno/test/main.ts", ["-test"])
-    log("output after processing: ----------------------")
-    log(output)
-    log("-----------------------------------------------")
+    def peek(self) -> Lex:
+        return self.lexemes[self.i] if self.i < len(self.lexemes) else None
     
-def testBuildContext():
-    log_enable()
-    log("testBuildContext")
-    language = Typescript()
-    backend = Deno()
-    ext = ".fnf.ts.md"
-    files = scanFolder("source/fnf", ext)
-    sourceFiles = [SourceFile(file) for file in files]
-    log_disable()
-    features = [parseFeature(s, language) for s in sourceFiles]
-    log("features:")
-    for feature in features:
-        log("-------------------")
-        log(feature)
-    log_enable()
-    log("------------------------------------------------------")
-    
-    outFile = generateCode("mycontext", features, language, backend)
-    outFile.show()
-    log("------------------------------------------------------")
-    writeTextFile("build/deno/test/main.ts", outFile.code)
-    log_enable()
-    processFn = lambda line: processLog(line, outFile)
-    output = backend.run(processFn, "build/deno/test/main.ts", ["-test"])
-    
+    def advance(self):
+        self.i += 1
 
+    def location(self, iLex: int=None) -> str:
+        if iLex is None: iLex = self.i
+        if iLex >= len(self.lexemes): return "EOF"
+        lex = self.lexemes[iLex]
+        path = lex.source.path if lex.source and lex.source.path else ""
+        line = 1
+        iCr = 0
+        if lex.source:
+            for i in range(0, lex.iStart):
+                if lex.source.text[i] == '\n': 
+                    iCr = i
+                    line += 1
+        return f"{path}:{line}:{lex.iStart - iCr}"
+
+# Writer writes into a List[Lex]
+class Writer:
+    def __init__(self):
+        self.lexemes = []
+
+    def write(self, lex: Lex):
+        self.lexemes.append(lex)
+
+def is_reader(obj):
+    return isinstance(obj, Reader)
+
+
+# Error just holds a message and a point in the source file
+class Error:
+    def __init__(self, message: str, reader: Reader):
+        self.message = message
+        self.reader = reader
+        self.iLex = reader.i
+
+    def __str__(self):
+        loc = self.reader.location(self.iLex)
+        return f"Error: {self.message} at {loc} ('{self.reader.lexemes[self.iLex]}')"
+
+# quick fn to determine if an object is an error
+def err(obj) -> bool:
+    is_err = isinstance(obj, Error)
+    #if is_err: log(obj)
+    return is_err
 
 #---------------------------------------------------------------------------------
+# parse and print using human-readable parser structures
+
+# keyword: match if this precise word appears next
+def keyword(word: str):
+    def parse_keyword(reader: Reader, word: str):
+        lex = reader.peek()
+        if lex and str(lex) == word:
+            reader.advance()
+            return {}
+        return Error(f"Expected '{word}'", reader)
+    def print_keyword(writer: Writer, ast, word: str):
+        writer.write(Lex('id', SourceFile(None, word), 0, len(word)))
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_keyword(x, word)
+        else: return print_keyword(x, ast, word)
+    return handler
+
+# identifier: match and return if the next lex is alphanum (including '_')
+def id():
+    def parse_id(reader: Reader):
+        lex = reader.peek()
+        if lex and lex.type == 'id':
+            reader.advance()
+            return [lex]
+        return Error("Expected an identifier", reader)
+    def print_id(writer: Writer, ast):
+        writer.write(ast[0])
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_id(x)
+        else: return print_id(x, ast)
+    return handler
+
+# set: set key in AST to the result of fn
+def set(name: str, fn):
+    def parse_set(reader: Reader, name: str, parse_fn):
+        ast = parse_fn(reader)
+        if err(ast): return ast
+        return { name : ast }
+    def print_set(writer: Writer, ast, name: str, print_fn):
+        if not (name in ast): return False
+        return print_fn(writer, ast[name])
+    def handler(x, ast=None):
+        if is_reader(x): return parse_set(x, name, fn)
+        else: return print_set(x, ast, name, fn)
+    return handler
+
+# sequence: match a sequence of parsers
+def sequence(*parse_fns):
+    def parse_sequence(reader: Reader, *parse_fns):
+        ast = {}
+        for parse_fn in parse_fns:
+            result = parse_fn(reader)
+            if err(result): return result
+            ast.update(result)
+        return ast
+    def print_sequence(writer: Writer, ast, *print_fns):
+        for print_fn in print_fns:
+            if not print_fn(writer, ast): return False
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_sequence(x, *parse_fns)
+        else: return print_sequence(x, ast, *parse_fns)
+    return handler
+
+# label: set "_type" property of the AST to (type)
+def label(type: str, fn):
+    def parse_label(reader: Reader, type: str, parse_fn):
+        ast = { '_type' : type }
+        sub_ast = parse_fn(reader)
+        if err(sub_ast): return sub_ast
+        ast.update(sub_ast)
+        return ast
+    def print_label(writer: Writer, ast, type: str, print_fn):
+        if not ('_type' in ast or ast['_type'] != type): return False
+        return print_fn(writer, ast)
+    def handler(x, ast=None):
+        if is_reader(x): return parse_label(x, type, fn)
+        else: return print_label(x, ast, type, fn)
+    return handler
+
+# optional: match if the parser matches, or skip if it doesn't
+def optional(fn):
+    def parse_optional(reader: Reader, parse_fn):
+        iLex = reader.i
+        ast = parse_fn(reader)
+        if err(ast):
+            if ast.iLex == iLex: return {}
+            return ast
+        return ast
+    def print_optional(writer: Writer, ast, print_fn):
+        length = len(writer.lexemes)
+        success = print_fn(writer, ast)
+        if not success:
+            writer.lexemes = writer.lexemes[:length]
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_optional(x, fn)
+        else: return print_optional(x, ast, fn)
+    return handler
+
+# match zero or more occurrences of (fn)
+def list(fn):
+    def parse_list(reader: Reader, parse_fn):
+        ast = []
+        while True:
+            sub_ast = parse_fn(reader)
+            if err(sub_ast): break
+            ast.append(sub_ast)
+        return ast
+    def print_list(writer: Writer, ast, print_fn):
+        for sub_ast in ast:
+            if not print_fn(writer, sub_ast): return False
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_list(x, fn)
+        else: return print_list(x, ast, fn)
+    return handler
+
+# match any of the given fns
+def anyof(*fns):
+    def parse_anyof(reader: Reader, *parse_fns):
+        for parse_fn in parse_fns:
+            iLex = reader.i
+            ast = parse_fn(reader)
+            if not err(ast): return ast
+            reader.i = iLex
+        return Error("Expected one of the options", reader)
+    def print_anyof(writer: Writer, ast, *print_fns):
+        for print_fn in print_fns:
+            iLex = writer.i
+            if print_fn(writer, ast): return True
+            writer.i = iLex
+        return False
+    def handler(x, ast=None):
+        if is_reader(x): return parse_anyof(x, *fns)
+        else: return print_anyof(x, ast, *fns)
+    return handler
+
+# match any of the given words (like keyword), return it
+def enum(*words):
+    def parse_enum(reader: Reader, *words):
+        lex = reader.peek()
+        if lex and lex.type == 'id' and str(lex) in words:
+            reader.advance()
+            return [lex]
+        return Error(f"Expected one of {words}", reader)
+    def print_enum(writer: Writer, ast, *words):
+        writer.write(ast[0])
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_enum(x, *words)
+        else: return print_enum(x, ast, *words)
+    return handler
+
+# match up one of (words), but only if not inside braces/brackets/parens
+def upto(words: List[str], startDepth:int =0):
+    def parse_upto(reader: Reader, words, startDepth):
+        depth = startDepth
+        out = []
+        while True:
+            lex = reader.peek()
+            if not lex: break
+            if depth ==0 and str(lex) in words: 
+                return out
+            out.append(lex)
+            if str(lex) in "{([" : depth += 1
+            elif str(lex) in "})]": depth -= 1
+            reader.advance()
+    def print_upto(writer: Writer, ast, words):
+        for lex in ast:
+            writer.write(lex)
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_upto(x, words, startDepth)
+        else: return print_upto(x, ast, words)
+    return handler
+
+#---------------------------------------------------------------------------------
+# Languages
+
+class Language:
+    pass
+
+class Typescript(Language):
+    def feature(self):
+        return label("feature", 
+            sequence(
+                keyword('feature'), set('name', id()),
+                optional(sequence(keyword('extends'), set('parent', id()))),
+                keyword("{"),
+                set("components", list(self.function())),
+                keyword("}")
+            ))
+    def function(self):
+        return label("function",
+            sequence(
+                set('modifier', enum('on', 'replace', 'after', 'before')),
+                set('name', id()),
+                keyword("("),
+                set("parameters", list(self.parameter())),
+                keyword(")"),
+                optional(sequence(keyword(":"), set("returnType", upto(["{"])))),
+                keyword("{"),
+                set("body", upto(["}"])),
+                keyword("}")
+            ))
+    def parameter(self):
+        return sequence(
+                set('name', id()),
+                optional(sequence(keyword(':'), set('type', id()))),
+                optional(sequence(keyword('='), set('default', upto([',',')',';']))))
+                )
+    def struct(self):
+        return label("struct",
+            sequence(
+                enum('struct', 'extend'), set('name', id()),
+                keyword("{"),
+                set("properties", list(sequence(self.parameter(), keyword(";")))),
+                keyword("}")
+            ))
+    def variable(self):
+        return label("variable",
+            sequence(
+                keyword('local'),
+                self.parameter()
+            ))
+
+
+def test_parser(lexemes: List[Lex]):
+    log("\ntest_parser")
+    reader = Reader(lexemes)
+    parser = Typescript().feature()
+    test_ast = """
+        {'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'name': [name], 'type': [string]}], 'body': [console, ., log, (, `Hello, ${name}!`, ), ;]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'body': [hello, (, "world", ), ;]}]}
+        """
+    ast = parser(reader)
+    log_assert(test_ast, ast)
+    if err(ast): return
+    test_ls = """
+        [feature, Hello, extends, Feature]
+    """
+    writer = Writer()
+    success = parser(writer, ast)
+    print("")
+    test_printer = """
+        [feature, Hello, extends, Feature, {, on, hello, (, name, :, string, ), {, console, ., log, (, `Hello, ${name}!`, ), ;, }, replace, main, (, ), {, hello, (, "world", ), ;, }, }]
+    """
+    log_assert(test_printer, writer.lexemes)
+
+#---------------------------------------------------------------------------------
+# test!
+
 def test():
-    #testError()
-    #testSourceFile()
-    #testParser()
-    #testCodeGeneration()
-    #testBackend()
-    testBuildContext()
-    #testFns()
+    log_enable()
+    source = SourceFile(None, test_code)
+    log(source.text)
+    lexemes = test_lexer(source)
+    ast = test_parser(lexemes)
 
+#---------------------------------------------------------------------------------
 if __name__ == "__main__":
     clear_console()
-    log_enable()
-    log("----------------------------------------------")
-    log("ᕦ(ツ)ᕤ fnf.py")
-    log_disable()
-    result = test()
-    log_enable()
-    log("done.")
+    print("-----------------------------------------------------------")
+    print("ᕦ(ツ)ᕤ fnf.py")
+    test()
+    print("done.")

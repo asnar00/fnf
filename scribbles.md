@@ -1,6 +1,32 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+new rules:
+- start fresh every morning
+- don't think about what others may want
+- just do what seems most fun
+
+this means right now:
+
+- just do everything in one file
+- just try stuff out
+
+-------------------------------------------------------------------------
+Get current fm.ts functionality working with new parser structure.
+Then: holiday time!
+- VR coding: hello cube
+- vault: serve files based on eyescan stuff
+- local llama 3.1 experiments
+- le website
+
+-----------------------------------------------------------------
+OK 40000 foot view again here: what's the right steer once the parser's upgraded?
+I'd say with a bit more of a push tomorrow I can get it where I need it by the weekend:
+passing the same tests. => we could go down the lexer route but I think that's unnecessary.
+
+There's some stuff to do with capturing the whitespace / lines *around* matches, somehow, so the layout gets preserved along with the other stuff. Like, when we skipWhitespace, we somehow record the resulting thing in the AST. Is that weird? 
+
+_________________________________________
 State of play:
 we've demonstrated the full range of parser/printer elements:
 keyword, identifier, sequence, list, anyof, enum, etc.
@@ -8,6 +34,25 @@ keyword, identifier, sequence, list, anyof, enum, etc.
 Next step: do parse/print tests for typescript.
 Then: do the function-builder by manipulating the AST, then output in target language.
 That's next!
+
+OK no: the right way forward is:
+
+- return to typescript output parity
+- implement python workflow
+
+Then rebuild the whole system in FNF, from the ground up.
+
+What if that was the "big deal", we impose a syntax on you, but it "gives" in all the right places.
+
+So there's some basic things like `type name` vs `name: type` and so on. And we can actually generate output code. So we're not just fucking about.
+
+This way, we have a sort of "flexible" syntax that accommodates you whether you come from C*, python, or whatever - but it's as opinionated as zero is, and has a multi-backend builder thingy that just fucking works. OK, that's actually a super nice next thing to do.
+
+So there's three syntax forms: cxx, python, typescript. Which takes care of the main incoming contingent. Code looks like you're used to, and it just works.
+
+So can we do this? Like a "flexible" system? Hm seems cool. A much better way of doing it because then you can write the code in zero, huhuhuhuhuh.
+
+ok that's the way forward.
 
 ------------------------------------
 
