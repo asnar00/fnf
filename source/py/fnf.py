@@ -36,7 +36,7 @@ def log_assert(check_against, *args):
     # print the args to a string
     s = " ".join([str(arg) for arg in args])
     if s == check_against.strip():
-        log("\npassed:", sourcePos, "\n")
+        print("passed:", sourcePos)
         log(s)
     else:
         print("\nFAILED!", sourcePos, "\n")
@@ -212,6 +212,8 @@ def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
     punctuation = '[]():;,.'
     operators = '!@$%^&*-+=/?<>~'
     indentLevel = 0
+    startOfLine = True
+    lineIndentLevel = 0
     while i < len(source.text) and safeCount > 0:
         safeCount -= 1
         c = source.text[i]
@@ -228,6 +230,7 @@ def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
                 whichQuote = c
                 iQuoteStart = i
             else:
+                if c != ' ': startOfLine = False
                 if c in punctuation: out.append(Lex('punct', source, i, i+1))
                 elif c in operators: 
                     j = (i+2) if cn in operators else (i+1)
@@ -250,31 +253,30 @@ def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
                         if c in ' \t\n\r': pass       # skip whitespace
                         elif c == '{': out.append(Lex('indent', source, i, i+1))
                         elif c == '}': out.append(Lex('undent', source, i, i+1))
-                    else:
-                        pass
+                    elif indentChar == ":":
+                        if c != ' ': 
+                            startOfLine = False
+                        if c == '\n':
+                            startOfLine = True
+                            i = i + 1
+                        if startOfLine:
+                            j = i
+                            while j < len(source.text) and source.text[j] == ' ':
+                                j += 1
+                            startOfLine = False
+                            indentLevel = (j - i) // 4
+                            if lineIndentLevel != -1 and indentLevel != lineIndentLevel:
+                                if len(out) > 0 and str(out[-1]) == ":": 
+                                    out.pop()
+                                if indentLevel > lineIndentLevel:
+                                    out.append(Lex('indent', source, i, j))
+                                elif indentLevel < lineIndentLevel:
+                                    out.append(Lex('undent', source, i, j))
+                            lineIndentLevel = indentLevel
+                            startOfLine = False
+                            i = j - 1    
         i = i + 1
     return out
-
-
-test_code = """
-feature Hello extends Feature {
-    on hello(name: string) { 
-        console.log(`Hello, ${name}!`);
-    }
-    replace main() {
-        hello("world");
-    }
-}
-"""
-
-def test_lexer(source: SourceFile):
-    log("test_lexer ----------------------------------------------------------")
-    lexemes = lexer(source)
-    out = """
-        [feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, {undent}, replace, main, (, ), {indent}, hello, (, "world", ), ;, {undent}, {undent}]
-    """
-    log_assert(out, lexemes)
-    return lexemes
 
 #---------------------------------------------------------------------------------
 # parse/print helpers
@@ -315,7 +317,6 @@ class Writer:
 
 def is_reader(obj):
     return isinstance(obj, Reader)
-
 
 # Error just holds a message and a point in the source file
 class Error:
@@ -458,6 +459,7 @@ def indent():
 def undent():
     def parse_undent(reader: Reader):
         lex = reader.peek()
+        if not lex: return {}       # EOF is an implicit undent
         if lex and lex.type == 'undent':
             reader.advance()
             return {}
@@ -554,7 +556,7 @@ def uptoType(type: str):
         out = []
         while True:
             lex = reader.peek()
-            if not lex: break
+            if not lex: return out
             if depth ==0 and lex.type == type:
                 return out
             out.append(lex)
@@ -571,86 +573,181 @@ def uptoType(type: str):
     return handler
 
 #---------------------------------------------------------------------------------
-# Languages
+# Language base class and common parser structures
 
 class Language:
-    pass
+    def indentChar(self): pass
 
-class Typescript(Language):
-    def feature(self):
-        return label("feature", 
-            sequence(
-                keyword('feature'), set('name', id()),
-                optional(sequence(keyword('extends'), set('parent', id()))),
-                indent(),
-                set("components", list(self.function())),
-                undent()
-            ))
-    def function(self):
-        return label("function",
+def feature(lang : Language):
+    return label("feature", 
+        sequence(
+            keyword('feature'), set('name', id()),
+            optional(sequence(keyword('extends'), set('parent', id()))),
+            indent(),
+            set("components", list(function(lang))),
+            undent()
+        ))
+
+def function(lang : Language):
+    return label("function",
             sequence(
                 set('modifier', enum('on', 'replace', 'after', 'before')),
-                set('name', id()),
-                keyword("("),
-                set("parameters", list(self.parameter())),
-                keyword(")"),
-                optional(sequence(keyword(":"), set("returnType", uptoType("indent")))),
+                lang.function_signature(),
                 indent(),
                 set("body", uptoType("undent")),
-                undent()
-            ))
+                undent()))
+
+#---------------------------------------------------------------------------------
+# test code, lexemes, ast and printed output for typescript
+
+# parsers for typescript-specific things
+class Typescript(Language):
+    def indentChar(self): return "{"
+    def function_signature(self):
+        return sequence(
+            set('name', id()),
+            keyword("("),
+            set("parameters", list(self.parameter())),
+            keyword(")"),
+            optional(sequence(keyword(":"), set("returnType", uptoType("indent"))))
+        )
     def parameter(self):
         return sequence(
-                set('name', id()),
-                optional(sequence(keyword(':'), set('type', id()))),
-                optional(sequence(keyword('='), set('default', upto([',',')',';']))))
-                )
-    def struct(self):
-        return label("struct",
-            sequence(
-                enum('struct', 'extend'), set('name', id()),
-                keyword("{"),
-                set("properties", list(sequence(self.parameter(), keyword(";")))),
-                keyword("}")
-            ))
-    def variable(self):
-        return label("variable",
-            sequence(
-                keyword('local'),
-                self.parameter()
-            ))
+            set('name', id()),
+            optional(sequence(keyword(':'), set('type', id()))),
+            optional(sequence(keyword('='), set('default', upto([',',')',';']))))
+        )
 
+# test code and expected outputs
+test_code_ts = """
+feature Hello extends Feature {
+    on hello(name: string) : number { 
+        console.log(`Hello, ${name}!`);
+        return 0;
+    }
+    replace main() : number {
+        return hello("world");
+    }
+}
+"""
 
-def test_parser(lexemes: List[Lex]):
-    log("\ntest_parser ---------------------------------------------------------")
+lexemes_ts = """
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), :, number, {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, replace, main, (, ), :, number, {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+"""
+
+ast_ts = """
+{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'name': [name], 'type': [string]}], 'returnType': [number], 'body': [console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'returnType': [number], 'body': [return, hello, (, "world", ), ;]}]}
+"""
+
+print_ts = """
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), :, number, {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, replace, main, (, ), :, number, {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+"""
+
+#---------------------------------------------------------------------------------
+# language definition, test code and expected outputs for python
+
+class Python(Language):
+    def indentChar(self): return ":"
+    def function_signature(self):
+        return sequence(
+            set('name', id()),
+            keyword("("),
+            set("parameters", list(self.parameter())),
+            keyword(")"),
+            optional(sequence(keyword("->"), set("returnType", id())))
+        )
+    def parameter(self):
+        return sequence(
+            set('name', id()),
+            optional(sequence(keyword(':'), set('type', id()))),
+            optional(sequence(keyword('='), set('default', upto([',',')','\n']))))
+        )
+
+test_code_py = """
+feature Hello extends Feature:
+    on hello(name: string) -> int:
+        print(f"Hello, {name}!")
+        return 0
+    replace main() -> int:
+        return hello("world")
+"""
+lexemes_py = """
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), ->, int, {indent}, print, (, f, "Hello, {name}!", ), return, 0, {undent}, replace, main, (, ), ->, int, {indent}, return, hello, (, "world", )]
+"""
+ast_py = """
+{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'name': [name], 'type': [string]}], 'returnType': [int], 'body': [print, (, f, "Hello, {name}!", ), return, 0]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'returnType': [int], 'body': [return, hello, (, "world", )]}]}
+"""
+print_py = """
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), ->, int, {indent}, print, (, f, "Hello, {name}!", ), return, 0, {undent}, replace, main, (, ), ->, int, {indent}, return, hello, (, "world", ), {undent}, {undent}]
+"""
+#---------------------------------------------------------------------------------
+# test code and expected outputs for C
+
+class C(Language):
+    def indentChar(self): return "{"
+    def function_signature(self):
+        return sequence(
+            set('returnType', id()),
+            set('name', id()),
+            keyword("("),
+            set("parameters", list(self.parameter())),
+            keyword(")")
+        )
+    def parameter(self):
+        return sequence(
+            set('type', id()),
+            set('name', id()),
+            optional(sequence(keyword('='), set('default', upto([',',')',';']))))
+        )
+    
+test_code_c = """
+feature Hello extends Feature {
+    on int hello(string name) { 
+        printf("Hello, %s!", name);
+        return 0;
+    }
+    replace int main() {
+        return hello("world");
+    }
+}
+"""
+
+lexemes_c = """
+[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+"""
+
+ast_c = """
+{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'returnType': [int], 'name': [hello], 'parameters': [{'type': [string], 'name': [name]}], 'body': [printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [replace], 'returnType': [int], 'name': [main], 'parameters': [], 'body': [return, hello, (, "world", ), ;]}]}"""
+
+print_c = """
+[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+"""
+#---------------------------------------------------------------------------------
+# test routines
+
+def test_parser(language: Language, test_code, expected_lexemes, expected_ast, expected_print):
+    print(f"\ntest_parser ({language.__class__.__name__}) -------------------------------------------------\n")
+    source = SourceFile(None, test_code)
+    log(source.text)
+    lexemes = lexer(source, language.indentChar())
+    log_assert(expected_lexemes, lexemes)
     reader = Reader(lexemes)
-    parser = Typescript().feature()
-    test_ast = """
-        {'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'name': [name], 'type': [string]}], 'body': [console, ., log, (, `Hello, ${name}!`, ), ;]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'body': [hello, (, "world", ), ;]}]}
-        """
+    parser = feature(language)
     ast = parser(reader)
-    log_assert(test_ast, ast)
+    log_assert(expected_ast, ast)
     if err(ast): return
-    test_ls = """
-        [feature, Hello, extends, Feature]
-    """
     writer = Writer()
     success = parser(writer, ast)
-    print("")
-    test_printer = """
-        [feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, {undent}, replace, main, (, ), {indent}, hello, (, "world", ), ;, {undent}, {undent}]
-    """
-    log_assert(test_printer, writer.lexemes)
+    log_assert(expected_print, writer.lexemes)
 
 #---------------------------------------------------------------------------------
 # test!
 
 def test():
+    test_parser(Typescript(), test_code_ts, lexemes_ts, ast_ts, print_ts)
+    test_parser(Python(), test_code_py, lexemes_py, ast_py, print_py)
     log_enable()
-    source = SourceFile(None, test_code)
-    log(source.text)
-    lexemes = test_lexer(source)
-    ast = test_parser(lexemes)
+    test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
 
 #---------------------------------------------------------------------------------
 if __name__ == "__main__":

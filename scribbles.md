@@ -5,7 +5,9 @@ The objection to "feature modular anything" is that it's too complex, and I'm no
 
 I prefer "zero with agnostic syntax and multiple backends" - which is a proper language with code generation coming out the wazoo. I want to build that in something that's performant and cross-platform.
 
-Maybe zig is fun to try?
+Maybe zig is fun to try? No it is not.
+
+Let's just keep going with python.
 
 ---------------------------------------------------------------------
 
