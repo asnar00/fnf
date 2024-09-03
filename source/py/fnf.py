@@ -36,10 +36,10 @@ def log_assert(check_against, *args):
     # print the args to a string
     s = " ".join([str(arg) for arg in args])
     if s == check_against.strip():
-        log("\npassed:", sourcePos)
+        log("\npassed:", sourcePos, "\n")
         log(s)
     else:
-        print("\nFAILED!", sourcePos)
+        print("\nFAILED!", sourcePos, "\n")
         print(s)
 
 def log_c(*args):
@@ -193,19 +193,25 @@ class Lex:
         self.iEnd = iEnd
 
     def __str__(self):
+        if self.type == 'indent': return "{indent}"
+        elif self.type == 'undent': return "{undent}"
         return self.source.text[self.iStart:self.iEnd]
     
     def __repr__(self):
         return self.__str__()
 
 # lexer takes source and turns it into a list of lexemes
-def lexer(source: SourceFile) -> List[Lex]:
+# handles C-style ("{") or python-style (":") indentation
+def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
     i = 0
     safeCount = 10000
     out : List[Lex] = []
     inQuotes : bool = False
     whichQuote : str = ""
     iQuoteStart : int = 0
+    punctuation = '[]():;,.'
+    operators = '!@$%^&*-+=/?<>~'
+    indentLevel = 0
     while i < len(source.text) and safeCount > 0:
         safeCount -= 1
         c = source.text[i]
@@ -221,24 +227,31 @@ def lexer(source: SourceFile) -> List[Lex]:
                 inQuotes = True
                 whichQuote = c
                 iQuoteStart = i
-            elif c in ' \t\n\r': pass       # skip whitespace
-            elif c in '{}[]():;,.': out.append(Lex('punct', source, i, i+1))
-            elif c in '!@$%^&*-+=/?<>~': 
-                j = (i+2) if cn in '!@$%^&*-+=/?<>~' else (i+1)
-                out.append(Lex('op', source, i, j))
-                i = j-1
-            elif c.isalpha() or c == '_':
-                j = i+1
-                while j < len(source.text) and (source.text[j].isalnum() or source.text[j] == '_'):
-                    j += 1
-                out.append(Lex('id', source, i, j))
-                i = j-1
-            elif c.isdigit():
-                j = i+1
-                while j < len(source.text) and source.text[j].isdigit():
-                    j += 1
-                out.append(Lex('num', source, i, j))
-                i = j-1
+            else:
+                if c in punctuation: out.append(Lex('punct', source, i, i+1))
+                elif c in operators: 
+                    j = (i+2) if cn in operators else (i+1)
+                    out.append(Lex('op', source, i, j))
+                    i = j-1
+                elif c.isalpha() or c == '_':
+                    j = i+1
+                    while j < len(source.text) and (source.text[j].isalnum() or source.text[j] == '_'):
+                        j += 1
+                    out.append(Lex('id', source, i, j))
+                    i = j-1
+                elif c.isdigit():
+                    j = i+1
+                    while j < len(source.text) and source.text[j].isdigit():
+                        j += 1
+                    out.append(Lex('num', source, i, j))
+                    i = j-1
+                else:
+                    if indentChar == '{':
+                        if c in ' \t\n\r': pass       # skip whitespace
+                        elif c == '{': out.append(Lex('indent', source, i, i+1))
+                        elif c == '}': out.append(Lex('undent', source, i, i+1))
+                    else:
+                        pass
         i = i + 1
     return out
 
@@ -255,10 +268,10 @@ feature Hello extends Feature {
 """
 
 def test_lexer(source: SourceFile):
-    log("test_lexer")
+    log("test_lexer ----------------------------------------------------------")
     lexemes = lexer(source)
     out = """
-    [feature, Hello, extends, Feature, {, on, hello, (, name, :, string, ), {, console, ., log, (, `Hello, ${name}!`, ), ;, }, replace, main, (, ), {, hello, (, "world", ), ;, }, }]
+        [feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, {undent}, replace, main, (, ), {indent}, hello, (, "world", ), ;, {undent}, {undent}]
     """
     log_assert(out, lexemes)
     return lexemes
@@ -313,7 +326,8 @@ class Error:
 
     def __str__(self):
         loc = self.reader.location(self.iLex)
-        return f"Error: {self.message} at {loc} ('{self.reader.lexemes[self.iLex]}')"
+        val = self.reader.lexemes[self.iLex] if self.iLex < len(self.reader.lexemes) else "eof"
+        return f"Error: {self.message} at {loc} ('{val}')"
 
 # quick fn to determine if an object is an error
 def err(obj) -> bool:
@@ -424,6 +438,38 @@ def optional(fn):
         else: return print_optional(x, ast, fn)
     return handler
 
+# indent: match if the next lex is an indent
+def indent():
+    def parse_indent(reader: Reader):
+        lex = reader.peek()
+        if lex and lex.type == 'indent':
+            reader.advance()
+            return {}
+        return Error("Expected an indent", reader)
+    def print_indent(writer: Writer, ast):
+        writer.write(Lex('indent', SourceFile(None, "{"), 0, 1))
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_indent(x)
+        else: return print_indent(x, ast)
+    return handler
+
+# undent: match if the next lex is an undent
+def undent():
+    def parse_undent(reader: Reader):
+        lex = reader.peek()
+        if lex and lex.type == 'undent':
+            reader.advance()
+            return {}
+        return Error("Expected an undent", reader)
+    def print_undent(writer: Writer, ast):
+        writer.write(Lex('undent', SourceFile(None, "}"), 0, 1))
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_undent(x)
+        else: return print_undent(x, ast)
+    return handler
+
 # match zero or more occurrences of (fn)
 def list(fn):
     def parse_list(reader: Reader, parse_fn):
@@ -479,9 +525,9 @@ def enum(*words):
     return handler
 
 # match up one of (words), but only if not inside braces/brackets/parens
-def upto(words: List[str], startDepth:int =0):
-    def parse_upto(reader: Reader, words, startDepth):
-        depth = startDepth
+def upto(words: List[str]):
+    def parse_upto(reader: Reader, words):
+        depth = 0
         out = []
         while True:
             lex = reader.peek()
@@ -489,16 +535,39 @@ def upto(words: List[str], startDepth:int =0):
             if depth ==0 and str(lex) in words: 
                 return out
             out.append(lex)
-            if str(lex) in "{([" : depth += 1
-            elif str(lex) in "})]": depth -= 1
+            if str(lex) in "([" or lex.type == 'indent': depth += 1
+            elif str(lex) in ")]" or lex.type == 'undent': depth -= 1
             reader.advance()
     def print_upto(writer: Writer, ast, words):
         for lex in ast:
             writer.write(lex)
         return True
     def handler(x, ast=None):
-        if is_reader(x): return parse_upto(x, words, startDepth)
+        if is_reader(x): return parse_upto(x, words)
         else: return print_upto(x, ast, words)
+    return handler
+
+# match everything up to a certain type, but only if not inside braces/brackets/parens
+def uptoType(type: str):
+    def parse_uptoType(reader: Reader, type):
+        depth = 0
+        out = []
+        while True:
+            lex = reader.peek()
+            if not lex: break
+            if depth ==0 and lex.type == type:
+                return out
+            out.append(lex)
+            if str(lex) in "([" or lex.type == 'indent': depth += 1
+            elif str(lex) in ")]" or lex.type == 'undent': depth -= 1
+            reader.advance()
+    def print_uptoType(writer: Writer, ast, words):
+        for lex in ast:
+            writer.write(lex)
+        return True
+    def handler(x, ast=None):
+        if is_reader(x): return parse_uptoType(x, type)
+        else: return print_uptoType(x, ast, type)
     return handler
 
 #---------------------------------------------------------------------------------
@@ -513,9 +582,9 @@ class Typescript(Language):
             sequence(
                 keyword('feature'), set('name', id()),
                 optional(sequence(keyword('extends'), set('parent', id()))),
-                keyword("{"),
+                indent(),
                 set("components", list(self.function())),
-                keyword("}")
+                undent()
             ))
     def function(self):
         return label("function",
@@ -525,10 +594,10 @@ class Typescript(Language):
                 keyword("("),
                 set("parameters", list(self.parameter())),
                 keyword(")"),
-                optional(sequence(keyword(":"), set("returnType", upto(["{"])))),
-                keyword("{"),
-                set("body", upto(["}"])),
-                keyword("}")
+                optional(sequence(keyword(":"), set("returnType", uptoType("indent")))),
+                indent(),
+                set("body", uptoType("undent")),
+                undent()
             ))
     def parameter(self):
         return sequence(
@@ -553,7 +622,7 @@ class Typescript(Language):
 
 
 def test_parser(lexemes: List[Lex]):
-    log("\ntest_parser")
+    log("\ntest_parser ---------------------------------------------------------")
     reader = Reader(lexemes)
     parser = Typescript().feature()
     test_ast = """
@@ -569,7 +638,7 @@ def test_parser(lexemes: List[Lex]):
     success = parser(writer, ast)
     print("")
     test_printer = """
-        [feature, Hello, extends, Feature, {, on, hello, (, name, :, string, ), {, console, ., log, (, `Hello, ${name}!`, ), ;, }, replace, main, (, ), {, hello, (, "world", ), ;, }, }]
+        [feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, {undent}, replace, main, (, ), {indent}, hello, (, "world", ), ;, {undent}, {undent}]
     """
     log_assert(test_printer, writer.lexemes)
 

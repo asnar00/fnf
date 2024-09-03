@@ -1,6 +1,14 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+The objection to "feature modular anything" is that it's too complex, and I'm not really sure what the objective is.
+
+I prefer "zero with agnostic syntax and multiple backends" - which is a proper language with code generation coming out the wazoo. I want to build that in something that's performant and cross-platform.
+
+Maybe zig is fun to try?
+
+---------------------------------------------------------------------
+
 new rules:
 - start fresh every morning
 - don't think about what others may want
