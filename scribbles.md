@@ -1,13 +1,34 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
-The objection to "feature modular anything" is that it's too complex, and I'm not really sure what the objective is.
+"feature modular anything" (fma) vs "zero with language-agnostic syntax and multiple backends" (zam)
 
-I prefer "zero with agnostic syntax and multiple backends" - which is a proper language with code generation coming out the wazoo. I want to build that in something that's performant and cross-platform.
+"fma" advantages:
+- can stand up a real server really quickly
+- fma code be translated later to zam
+- don't have to work out all the low-level bits
+- other people can enter the project easily (no new stuff to learn)
 
-Maybe zig is fun to try? No it is not.
+"zam" advantages:
+- single language, multiple targets
+- deal with async / parallelism nicely
+- compile properly
 
-Let's just keep going with python.
+It's good to do fma as the first step, because we can llm-translate fma code to zam later on.
+
+So we're going to stick on the fma track until we get the vault server running.
+
+Tomorrow's order of play:
+
+1. Get structs, variables, tests working in test.
+2. Scan folder and generate the group AST.
+3. Output the grouped AST to a lex-string
+4. Convert the lex-string to text and sourcemap.
+5. Deno backend run and test.
+
+In other words, get back to where we were with the previous demo. 
+
+You're doing good, keep going.
 
 ---------------------------------------------------------------------
 

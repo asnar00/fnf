@@ -8,6 +8,14 @@ from threading import Thread
 import subprocess
 import datetime
 import inspect
+import os
+import sys
+import json
+import subprocess
+import re
+import requests
+import shutil
+import traceback
 
 #--------------------------------------------------------------------------------------------------
 # logging
@@ -178,9 +186,17 @@ class SourceLocation:
         self.line = line
         self.column = column
 
-class SourceMap:
-    def __init__(self):
-        self.map : List[Tuple[int, SourceLocation]] = []       # list of (int, SourceLocation) tuples
+class SourceRange:
+    def __init__(self, source: SourceFile, iStart: int =0, iEnd: int=None):
+        self.source = source
+        self.iStart = iStart
+        self.iEnd = iEnd if iEnd else len(source.text)
+
+    def __str__(self):
+        return "\n" + self.source.text[self.iStart:self.iEnd] + "\n"
+    
+    def __repr__(self):
+        return self.__str__()
 
 #---------------------------------------------------------------------------------
 # Lex is a lexeme: a source file, plus a position and range
@@ -200,10 +216,9 @@ class Lex:
     def __repr__(self):
         return self.__str__()
 
-# lexer takes source and turns it into a list of lexemes
+# lexer takes source range and turns it into a list of lexemes
 # handles C-style ("{") or python-style (":") indentation
-def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
-    i = 0
+def lexer(ranges: SourceRange, indentChar='{') -> List[Lex]:
     safeCount = 10000
     out : List[Lex] = []
     inQuotes : bool = False
@@ -214,68 +229,70 @@ def lexer(source: SourceFile, indentChar='{') -> List[Lex]:
     indentLevel = 0
     startOfLine = True
     lineIndentLevel = 0
-    while i < len(source.text) and safeCount > 0:
-        safeCount -= 1
-        c = source.text[i]
-        cp = source.text[i-1] if i > 0 else ""
-        cn = source.text[i+1] if i < len(source.text) - 1 else ""
-        if inQuotes:
-            if c == whichQuote:
-                if i > 0 and cp != '\\': 
-                    out.append(Lex('quote', source, iQuoteStart, i+1))
-                    inQuotes = False
-        else:
-            if c in '`\"\'':  # start of quotes
-                inQuotes = True
-                whichQuote = c
-                iQuoteStart = i
+    for range in ranges:
+        i = range.iStart
+        while i < range.iEnd and safeCount > 0:
+            safeCount -= 1
+            c = range.source.text[i]
+            cp = range.source.text[i-1] if i > 0 else ""
+            cn = range.source.text[i+1] if i < range.iEnd - 1 else ""
+            if inQuotes:
+                if c == whichQuote:
+                    if i > 0 and cp != '\\': 
+                        out.append(Lex('quote', range.source, iQuoteStart, i+1))
+                        inQuotes = False
             else:
-                if c != ' ': startOfLine = False
-                if c in punctuation: out.append(Lex('punct', source, i, i+1))
-                elif c in operators: 
-                    j = (i+2) if cn in operators else (i+1)
-                    out.append(Lex('op', source, i, j))
-                    i = j-1
-                elif c.isalpha() or c == '_':
-                    j = i+1
-                    while j < len(source.text) and (source.text[j].isalnum() or source.text[j] == '_'):
-                        j += 1
-                    out.append(Lex('id', source, i, j))
-                    i = j-1
-                elif c.isdigit():
-                    j = i+1
-                    while j < len(source.text) and source.text[j].isdigit():
-                        j += 1
-                    out.append(Lex('num', source, i, j))
-                    i = j-1
+                if c in '`\"\'':  # start of quotes
+                    inQuotes = True
+                    whichQuote = c
+                    iQuoteStart = i
                 else:
-                    if indentChar == '{':
-                        if c in ' \t\n\r': pass       # skip whitespace
-                        elif c == '{': out.append(Lex('indent', source, i, i+1))
-                        elif c == '}': out.append(Lex('undent', source, i, i+1))
-                    elif indentChar == ":":
-                        if c != ' ': 
-                            startOfLine = False
-                        if c == '\n':
-                            startOfLine = True
-                            i = i + 1
-                        if startOfLine:
-                            j = i
-                            while j < len(source.text) and source.text[j] == ' ':
-                                j += 1
-                            startOfLine = False
-                            indentLevel = (j - i) // 4
-                            if lineIndentLevel != -1 and indentLevel != lineIndentLevel:
-                                if len(out) > 0 and str(out[-1]) == ":": 
-                                    out.pop()
-                                if indentLevel > lineIndentLevel:
-                                    out.append(Lex('indent', source, i, j))
-                                elif indentLevel < lineIndentLevel:
-                                    out.append(Lex('undent', source, i, j))
-                            lineIndentLevel = indentLevel
-                            startOfLine = False
-                            i = j - 1    
-        i = i + 1
+                    if c != ' ': startOfLine = False
+                    if c in punctuation: out.append(Lex('punct', range.source, i, i+1))
+                    elif c in operators: 
+                        j = (i+2) if cn in operators else (i+1)
+                        out.append(Lex('op', range.source, i, j))
+                        i = j-1
+                    elif c.isalpha() or c == '_':
+                        j = i+1
+                        while j < range.iEnd and (range.source.text[j].isalnum() or range.source.text[j] == '_'):
+                            j += 1
+                        out.append(Lex('id', range.source, i, j))
+                        i = j-1
+                    elif c.isdigit():
+                        j = i+1
+                        while j < range.iEnd and range.source.text[j].isdigit():
+                            j += 1
+                        out.append(Lex('num', range.source, i, j))
+                        i = j-1
+                    else:
+                        if indentChar == '{':
+                            if c in ' \t\n\r': pass       # skip whitespace
+                            elif c == '{': out.append(Lex('indent', range.source, i, i+1))
+                            elif c == '}': out.append(Lex('undent', range.source, i, i+1))
+                        elif indentChar == ":":
+                            if c != ' ': 
+                                startOfLine = False
+                            if c == '\n':
+                                startOfLine = True
+                                i = i + 1
+                            if startOfLine:
+                                j = i
+                                while j < range.iEnd and range.source.text[j] == ' ':
+                                    j += 1
+                                startOfLine = False
+                                indentLevel = (j - i) // 4
+                                if lineIndentLevel != -1 and indentLevel != lineIndentLevel:
+                                    if len(out) > 0 and str(out[-1]) == ":": 
+                                        out.pop()
+                                    if indentLevel > lineIndentLevel:
+                                        out.append(Lex('indent', range.source, i, j))
+                                    elif indentLevel < lineIndentLevel:
+                                        out.append(Lex('undent', range.source, i, j))
+                                lineIndentLevel = indentLevel
+                                startOfLine = False
+                                i = j - 1    
+            i = i + 1
     return out
 
 #---------------------------------------------------------------------------------
@@ -302,7 +319,7 @@ class Reader:
         iCr = 0
         if lex.source:
             for i in range(0, lex.iStart):
-                if lex.source.text[i] == '\n': 
+                if lex.range.source.text[i] == '\n': 
                     iCr = i
                     line += 1
         return f"{path}:{line}:{lex.iStart - iCr}"
@@ -585,8 +602,7 @@ def feature(lang : Language):
             optional(sequence(keyword('extends'), set('parent', id()))),
             indent(),
             set("components", list(function(lang))),
-            undent()
-        ))
+            undent()))
 
 def function(lang : Language):
     return label("function",
@@ -596,6 +612,21 @@ def function(lang : Language):
                 indent(),
                 set("body", uptoType("undent")),
                 undent()))
+
+def struct(lang : Language):
+    return label("struct",
+            sequence(
+                set('modifier', enum('struct', 'extend')),
+                set('name', id()),
+                indent(),
+                set("properties", list(lang.parameter())),
+                undent()))
+
+def variable(lang : Language):
+    return label("variable",
+            sequence(
+                keyword("local"),
+                lang.parameter()))
 
 #---------------------------------------------------------------------------------
 # test code, lexemes, ast and printed output for typescript
@@ -722,14 +753,243 @@ ast_c = """
 print_c = """
 [feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
 """
+
+#---------------------------------------------------------------------------------
+# extract code from markdown file
+
+def extractCode(source: SourceFile) -> List[SourceRange]:
+    ranges = []
+    inTripleQuoteBlock = False
+    inTabbedBlock = False
+    iChar = 0
+    lines = source.text.split('\n')[:-1]
+    for line in lines:
+        if not (inTripleQuoteBlock or inTabbedBlock):
+            if line.startswith("```"):
+                inTripleQuoteBlock = True
+                ranges.append(SourceRange(source, iChar + len(line) + 1))
+            elif line.startswith("    "):
+                inTabbedBlock = True
+                ranges.append(SourceRange(source, iChar))
+        elif inTripleQuoteBlock:
+            if line.startswith("```"):
+                inTripleQuoteBlock = False
+                ranges[-1].iEnd = iChar-1
+        elif inTabbedBlock:
+            if not line.startswith("    "):
+                inTabbedBlock = False
+                ranges[-1].iEnd = iChar-1
+        iChar += len(line) + 1
+    return ranges
+
+test_md = """
+# Hello
+
+This is a test markdown file containing two kinds of code snippets:
+
+```ts
+feature Hello extends Feature {
+    on hello() {
+        print("hello world");
+    }
+```
+
+and tabbed code:
+
+    on print(msg: string) {
+        console.log(msg);
+    }
+
+And that's it! 
+"""
+
+expected_ranges = """
+[
+feature Hello extends Feature {
+    on hello() {
+        print("hello world");
+    }
+, 
+    on print(msg: string) {
+        console.log(msg);
+    }
+]
+"""
+#---------------------------------------------------------------------------------
+# base class for backends
+
+class Backend:
+    def __init__(self): pass
+    def check_version(self) -> str: pass
+    def get_latest_version(self) -> str: pass
+    def install_latest_version(self): pass
+    def ensure_latest_version(self) -> bool: pass
+    def setup(self, project_path: str): pass
+    def preamble(self) -> str: pass
+    def postamble(self, context: str) -> str: pass
+    def run(self, filename: str, options: List[str] =[], processLineFn=None) -> str : pass
+
+#---------------------------------------------------------------------------------
+# Deno backend
+
+class Deno(Backend):
+    def __init__(self):
+        super().__init__()
+
+    def check_version(self) -> str:
+        try:
+            # Check both the system PATH and the user's .deno/bin directory
+            deno_path = shutil.which("deno")
+            if deno_path:
+                result = subprocess.run([deno_path, "--version"], check=True, capture_output=True, text=True)
+            else:
+                home_dir = os.path.expanduser("~")
+                deno_bin = os.path.join(home_dir, ".deno", "bin", "deno")
+                if os.path.exists(deno_bin):
+                    result = subprocess.run([deno_bin, "--version"], check=True, capture_output=True, text=True)
+                else:
+                    return None
+            version_output = result.stdout
+            version_match = re.search(r"deno (\d+\.\d+\.\d+)", version_output)
+            if version_match:
+                return version_match.group(1)
+            else:
+                return None
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+        
+    def get_latest_version(self) ->str:
+        try:
+            response = requests.get("https://github.com/denoland/deno/releases/latest")
+            latest_version = response.url.split('/')[-1].lstrip('v')
+            return latest_version
+        except requests.RequestException:
+            log("Failed to fetch the latest version. Please check your internet connection.")
+            return None
+        
+    def install_latest_version(self):
+        try:
+            log("Starting Deno installation...")
+            # Using curl to download and run the Deno installer
+            install_command = "curl -fsSL https://deno.land/x/install/install.sh | sh"
+            result = subprocess.run(install_command, shell=True, check=True, capture_output=True, text=True)
+            log("Installer output:")
+            log(result.stdout)
+            # Update PATH
+            deno_path = os.path.expanduser("~/.deno/bin")
+            update_PATH(deno_path)
+            log("Deno installation completed and PATH updated.")
+            return True
+        except subprocess.CalledProcessError as e:
+            log(f"Failed to install Deno: {e}")
+            log("Error output:")
+            log(e.stderr)
+            return False
+
+    def ensure_latest_version(self) -> bool:
+        current_version = self.check_version()
+        latest_version = self.get_latest_version()
+        if latest_version == None:
+            log("failed to determine latest version of Deno")
+            return False 
+        if current_version == None or current_version != latest_version:
+            log(f"deno: current version is {current_version}, latest version is {latest_version}")
+            log(f"installing Deno version {latest_version}")
+            self.install_latest_version()
+            return True
+        log("deno is up to date :-)")
+
+    def setup(self, project_path: str):
+        # Create the project directory if it doesn't exist
+        os.makedirs(project_path, exist_ok=True)
+        # Change to the project directory
+        os.chdir(project_path)
+        # Create main.ts file
+        with open('main.ts', 'w') as f:
+            f.write('console.log("Hello, Deno!");')
+        # Create deno.json configuration file
+        deno_config = {
+            "compilerOptions": {
+                "allowJs": True,
+                "lib": ["deno.window"]
+            },
+            "lint": {
+                "files": {
+                    "include": ["src/"]
+                },
+                "rules": {
+                    "tags": ["recommended"]
+                }
+            },
+            "fmt": {
+                "files": {
+                    "include": ["src/"]
+                },
+                "options": {
+                    "useTabs": False,
+                    "lineWidth": 80,
+                    "indentWidth": 4,
+                    "singleQuote": True,
+                    "proseWrap": "always"
+                }
+            }
+        }
+        with open('deno.json', 'w') as f:
+            json.dump(deno_config, f, indent=2)
+        # Create import_map.json file
+        import_map = {
+            "imports": {}
+        }
+        with open('import_map.json', 'w') as f:
+            json.dump(import_map, f, indent=2)
+        log(f"Deno project initialized in {project_path}")
+
+    def preamble(self) -> str:
+        return """
+var _file = "";
+function _output(value: any, loc: string) { console.log(`${loc}:OUTPUT: ${value}`); }
+function _assert(lhs: any, rhs: any, loc: string) { if (lhs !== rhs) console.log(`${loc}:FAIL: ${lhs}`); else console.log(`${loc}:PASS`); }"""
+    
+    def postamble(self, context: str) -> str:
+        return f"""
+async function main() {{
+    if (Deno.args.indexOf("-test") >= 0) {{
+        console.log("testing {context}...");
+        await {context}._test();
+        return;
+    }}
+}}
+
+main();"""
+
+    def run(self, processFn, filename: str, options: List[str]=[])->str:
+        if not os.path.exists(filename):
+            return f"Error: File not found: {filename}", ""
+        try:
+            cmd = ['deno', 'run', '--allow-all', filename, *options]
+            return runProcess(cmd, processFn)
+        except FileNotFoundError:
+            raise
+            return "Error: Deno is not installed or not in the system PATH.", ""
+        except Exception as e:
+            traceback.print_exc()
+            print(f"An unexpected error occurred: {str(e)}")
+
 #---------------------------------------------------------------------------------
 # test routines
+
+def test_extract():
+    print("\ntest_extract -------------------------------------------------\n")
+    source = SourceFile(None, test_md)
+    ranges = extractCode(source)
+    log_assert(expected_ranges, ranges)
 
 def test_parser(language: Language, test_code, expected_lexemes, expected_ast, expected_print):
     print(f"\ntest_parser ({language.__class__.__name__}) -------------------------------------------------\n")
     source = SourceFile(None, test_code)
+    range = SourceRange(source)
     log(source.text)
-    lexemes = lexer(source, language.indentChar())
+    lexemes = lexer([range], language.indentChar())
     log_assert(expected_lexemes, lexemes)
     reader = Reader(lexemes)
     parser = feature(language)
@@ -746,8 +1006,8 @@ def test_parser(language: Language, test_code, expected_lexemes, expected_ast, e
 def test():
     test_parser(Typescript(), test_code_ts, lexemes_ts, ast_ts, print_ts)
     test_parser(Python(), test_code_py, lexemes_py, ast_py, print_py)
-    log_enable()
     test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
+    test_extract()
 
 #---------------------------------------------------------------------------------
 if __name__ == "__main__":
