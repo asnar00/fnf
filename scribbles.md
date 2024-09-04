@@ -1,6 +1,15 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+Where we are: trying to deal with the subtleties of significant whitespace and lexing and separators.
+
+In a nutshell: we need to be able to do match "anything upto a comma, cr, or undent" and they're currently separate parser functions. So we need to figure this out better.
+
+Suggestion: store lex.val, not type, which may or may not be different to the range/i/j values.
+=> that ought to do it.
+
+----
+
 "feature modular anything" (fma) vs "zero with language-agnostic syntax and multiple backends" (zam)
 
 "fma" advantages:
@@ -28,7 +37,8 @@ Tomorrow's order of play:
 
 In other words, get back to where we were with the previous demo. 
 
-You're doing good, keep going.
+You're doing good, keep going. Also tomorrow: give cursor.ai a proper shout.
+=> spend the afternoon messing with vision pro - get furtive running, plus get a keyboard obvs.
 
 ---------------------------------------------------------------------
 
