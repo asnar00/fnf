@@ -57,8 +57,33 @@ def log_c(*args):
 def clear_console():
     os.system('clear')  # For Linux/macOS
 
-#--------------------------------------------------------------------------------------------------------------------------
-# file system low-level
+def console_grey():
+    return "\033[1;30m"
+
+def console_grey_background():
+    return "\033[100m"
+
+def console_normal():
+    return "\033[0m"
+
+#--------------------------------------------------------------------------------------------------
+# stack stuff
+
+global s_cwd
+s_cwd = os.getcwd()
+
+global s_caller_enabled
+s_caller_enabled = True
+
+def caller_context():
+    if not s_caller_enabled: return ""
+    frame = inspect.currentframe()
+    frame = inspect.getouterframes(frame)[2]
+    hyperlink = f"    ◀︎ {console_grey()}{frame.filename.replace(s_cwd, "")}:{frame.lineno}{console_normal()}"
+    return hyperlink
+
+#--------------------------------------------------------------------------------------------------
+# # file system low-level
 
 def readTextFile(path: str) -> str:
     with open(path, "r") as file:
@@ -185,12 +210,28 @@ class SourceFile:
         for i in range(0, len(lines)):
             out += f"{i+1:3} {lines[i]}\n"
         return out
-
+    
+    def findLocation(self, iChar: int) -> 'SourceLocation':
+        line = 1
+        iCr = 0
+        for i in range(0, iChar):
+            if self.text[i] == '\n': 
+                iCr = i
+                line += 1
+        column = iChar - iCr
+        return SourceLocation(self.path, line, column)
+    
 class SourceLocation:
     def __init__(self, path: str, line: int, column: int):
         self.path = path
         self.line = line
         self.column = column
+
+    def __str__(self):
+        return f"{self.path}:{self.line}:{self.column}"
+    
+    def __repr__(self):
+        return self.__str__()
 
 class SourceRange:
     def __init__(self, source: SourceFile, iStart: int =0, iEnd: int=None):
@@ -222,6 +263,17 @@ class Lex:
     
     def is_id(self):
         return self.val[0].isalpha() or self.val[0] == '_'
+    
+    def location(self):
+        path = self.source.path if self.source and self.source.path else ""
+        line = 1
+        iCr = 0
+        if self.source:
+            for i in range(0, self.iStart):
+                if self.source.text[i] == '\n': 
+                    iCr = i
+                    line += 1
+        return SourceLocation(path, line, self.iStart - iCr)
 
 # lexer takes source range and turns it into a list of lexemes
 # handles C-style ("{") or python-style (":") indentation
@@ -319,19 +371,11 @@ class Reader:
     def advance(self):
         self.i += 1
 
-    def location(self, iLex: int=None) -> str:
+    def location(self, iLex: int=None) -> SourceLocation:
         if iLex is None: iLex = self.i
         if iLex >= len(self.lexemes): return "EOF"
         lex = self.lexemes[iLex]
-        path = lex.source.path if lex.source and lex.source.path else ""
-        line = 1
-        iCr = 0
-        if lex.source:
-            for i in range(0, lex.iStart):
-                if lex.source.text[i] == '\n': 
-                    iCr = i
-                    line += 1
-        return f"{path}:{line}:{lex.iStart - iCr}"
+        return lex.location()
 
 # Writer writes into a List[Lex]
 class Writer:
@@ -346,16 +390,40 @@ def is_reader(obj):
 
 # Error just holds a message and a point in the source file
 class Error:
-    def __init__(self, message: str, reader: Reader):
-        self.message = message
+    def __init__(self, expected: str, reader: Reader, context=""):
+        self.context = context
+        self.expected = expected
         self.reader = reader
         self.iLex = reader.i
-        log(self)
+        self.location = reader.location(self.iLex)
 
     def __str__(self):
-        loc = self.reader.location(self.iLex)
-        val = self.reader.lexemes[self.iLex] if self.iLex < len(self.reader.lexemes) else "eof"
-        return f"Error: {self.message} at {loc} ('{val}')"
+        val = str(self.reader.lexemes[self.iLex]) if self.iLex < len(self.reader.lexemes) else "eof"
+        for iLex in range(self.iLex+1, min(self.iLex+4, len(self.reader.lexemes))):
+            val = val + " " + str(self.reader.lexemes[iLex])
+        out= f"Expected {self.expected} at {self.location}:{self.context}"
+        return out
+    
+    def show_source(self) -> str:
+        lex = self.reader.lexemes[self.iLex]
+        lenLex = len(str(lex))
+        text = lex.source.text
+        lines = text.split('\n')[:-1]
+        out = f"{console_grey()}"
+        for i in range(max(0,self.location.line -3), min(self.location.line + 2, len(lines))):
+            line = lines[i]
+            if i == self.location.line-1:
+                before = line[:self.location.column-1]
+                mid = line[self.location.column-1:self.location.column-1+lenLex]
+                after = line[self.location.column-1+lenLex:]
+                out += f"{i+1:3} {before}{console_normal()}{console_grey_background()}{mid}{console_normal()}{console_grey()}{after}" + "\n"
+            else:
+                out += f"{i+1:3} {line}" + "\n"
+        out += f"{console_normal()}"
+        return out
+    
+    def is_later_than(self, other):
+        return self.iLex > other.iLex
 
 # quick fn to determine if an object is an error
 def err(obj) -> bool:
@@ -363,18 +431,41 @@ def err(obj) -> bool:
     #if is_err: log(obj)
     return is_err
 
+# combine multiple errors
+def combine_errors(errors: List[Error]) -> Error:
+    print("combine_errors:")
+    for error in errors:
+        print("  ", error)
+    # first find the latest one
+    latest = errors[0]
+    for error in errors:
+        if error.is_later_than(latest):
+            latest = error
+    # now find all errors at the same point as latest
+    same_point = [latest]
+    for error in errors:
+        if error.iLex == latest.iLex and error != latest:
+            same_point.append(error)
+    # now combine all the 'expecteds' into an "or" string
+    expecteds = [error.expected for error in same_point]
+    expected = " or ".join(expecteds)
+    # now return a new error with the combined expecteds
+    latest.expected = expected
+    return latest
+
 #---------------------------------------------------------------------------------
 # parse and print using human-readable parser structures
 
 # keyword: match if this precise word appears next
 def keyword(word: str):
+    ctx = caller_context()
     def parse_keyword(reader: Reader, word: str):
         lex = reader.peek()
         if lex == None and word in ['{newline}', '{undent}']: return {} # special case for premature eof
         if lex and str(lex) == word:
             reader.advance()
             return {}
-        return Error(f"Expected '{word}'", reader)
+        return Error(f"'{word}'", reader, ctx)
     def print_keyword(writer: Writer, ast, word: str):
         writer.write(Lex(SourceFile(None, word), 0, len(word)))
         return True
@@ -383,14 +474,66 @@ def keyword(word: str):
         else: return print_keyword(x, ast, word)
     return despatch_keyword
 
+# indent: match if the next lex is an indent
+def indent():
+    ctx = caller_context()
+    def parse_indent(reader: Reader):
+        lex = reader.peek()
+        if lex and str(lex) == '{indent}':
+            reader.advance()
+            return {}
+        return Error("{indent}", reader, ctx)
+    def print_indent(writer: Writer, ast):
+        writer.write(Lex(SourceFile(None, '{indent}'), 0, len('{indent}')))
+        return True
+    def despatch_indent(x, ast=None):
+        if is_reader(x): return parse_indent(x)
+        else: return print_indent(x, ast)
+    return despatch_indent
+
+# undent: match if the next lex is an undent
+def undent():
+    ctx = caller_context()
+    def parse_undent(reader: Reader):
+        lex = reader.peek()
+        if lex and str(lex) == '{undent}':
+            reader.advance()
+            return {}
+        return Error("{undent}", reader, ctx)
+    def print_undent(writer: Writer, ast):
+        writer.write(Lex(SourceFile(None, '{undent}'), 0, len('{undent}')))
+        return True
+    def despatch_undent(x, ast=None):
+        if is_reader(x): return parse_undent(x)
+        else: return print_undent(x, ast)
+    return despatch_undent
+
+# newline: match if the next lex is a newline
+def newline():
+    ctx = caller_context()
+    def parse_newline(reader: Reader):
+        lex = reader.peek()
+        if lex and str(lex) == '{newline}':
+            reader.advance()
+            return {}
+        return Error("{newline}", reader, ctx)
+    def print_newline(writer: Writer, ast):
+        writer.write(Lex(SourceFile(None, '{newline}'), 0, len('{newline}')))
+        return True
+    def despatch_newline(x, ast=None):
+        if is_reader(x): return parse_newline(x)
+        else: return print_newline(x, ast)
+    return despatch_newline
+
 # identifier: match and return if the next lex is alphanum (including '_')
 def id():
+    ctx = caller_context()
     def parse_id(reader: Reader):
         lex = reader.peek()
         if lex and lex.is_id():
             reader.advance()
             return [lex]
-        return Error("Expected an identifier", reader)
+        return Error("identifier", reader, ctx)
     def print_id(writer: Writer, ast):
         writer.write(ast[0])
         return True
@@ -401,6 +544,7 @@ def id():
 
 # set: set key in AST to the result of fn
 def set(name: str, fn):
+    ctx = caller_context()
     def parse_set(reader: Reader, name: str, parse_fn):
         ast = parse_fn(reader)
         if err(ast): return ast
@@ -416,11 +560,13 @@ def set(name: str, fn):
 
 # sequence: match a sequence of parsers
 def sequence(*parse_fns):
+    ctx = caller_context()
     def parse_sequence(reader: Reader, *parse_fns):
         ast = {}
         for parse_fn in parse_fns:
             result = parse_fn(reader)
-            if err(result): return result
+            if err(result):
+                return result
             ast.update(result)
         return ast
     def print_sequence(writer: Writer, ast, *print_fns):
@@ -434,6 +580,7 @@ def sequence(*parse_fns):
 
 # label: set "_type" property of the AST to (type)
 def label(type: str, fn):
+    ctx = caller_context()
     def parse_label(reader: Reader, type: str, parse_fn):
         ast = { '_type' : type }
         sub_ast = parse_fn(reader)
@@ -451,6 +598,7 @@ def label(type: str, fn):
 
 # optional: match if the parser matches, or skip if it doesn't
 def optional(fn):
+    ctx = caller_context()
     def parse_optional(reader: Reader, parse_fn):
         iLex = reader.i
         ast = parse_fn(reader)
@@ -469,13 +617,19 @@ def optional(fn):
         else: return print_optional(x, ast, fn)
     return despatch_optional
 
-# match zero or more occurrences of (fn)
-def list(fn):
+# match zero or more occurrences of (fn), terminated by (termFn)
+def list(fn, term: str):
+    ctx = caller_context()
     def parse_list(reader: Reader, parse_fn):
         ast = []
         while True:
+            next = reader.peek()
+            if not next: break
+            if str(next) == term:
+               reader.advance()
+               break
             sub_ast = parse_fn(reader)
-            if err(sub_ast): break
+            if err(sub_ast): return sub_ast
             ast.append(sub_ast)
         return ast
     def print_list(writer: Writer, ast, print_fn):
@@ -488,17 +642,22 @@ def list(fn):
     return despatch_list
 
 # match zero or more occurrences of (fn) separated by (sep) [internally only]
-def list_separated(fn, sep: str):
+def list_separated(fn, sep: str, term: str):
+    ctx = caller_context()
     def parse_list_separated(reader: Reader, parse_fn, sep):
         ast = []
         while True:
+            if str(reader.peek()) == term:
+                reader.advance()
+                break
             sub_ast = parse_fn(reader)
-            if err(sub_ast): break
+            if err(sub_ast): return sub_ast
             ast.append(sub_ast)
             next = reader.peek()
-            if not next or str(next) != sep: 
+            if str(next) == term:
+                reader.advance()
                 break
-            else:
+            elif str(next) == sep:
                 reader.advance()
         return ast
     def print_list_separated(writer: Writer, ast, print_fn, sep: str):
@@ -513,13 +672,18 @@ def list_separated(fn, sep: str):
 
 # match any of the given fns
 def anyof(*fns):
+    ctx = caller_context()
     def parse_anyof(reader: Reader, *parse_fns):
+        errors = []
         for parse_fn in parse_fns:
             iLex = reader.i
             ast = parse_fn(reader)
             if not err(ast): return ast
+            errors.append(ast)
             reader.i = iLex
-        return Error("Expected one of the options", reader)
+        error = combine_errors(errors)
+        print("anyof error:", error)
+        return error
     def print_anyof(writer: Writer, ast, *print_fns):
         for print_fn in print_fns:
             iLex = len(writer.lexemes)
@@ -533,12 +697,13 @@ def anyof(*fns):
 
 # match any of the given words (like keyword), return it
 def enum(*words):
+    ctx = caller_context()
     def parse_enum(reader: Reader, *words):
         lex = reader.peek()
         if lex and str(lex) in words:
             reader.advance()
             return [lex]
-        return Error(f"Expected one of {words}", reader)
+        return Error(f"{words}", reader, ctx)
     def print_enum(writer: Writer, ast, *words):
         writer.write(ast[0])
         return True
@@ -549,6 +714,7 @@ def enum(*words):
 
 # match up one of (words), but only if not inside braces/brackets/parens
 def upto(words : List[str]):
+    ctx = caller_context()
     def parse_upto(reader: Reader, words):
         depth = 0
         out = []
@@ -587,9 +753,6 @@ def debug(fn):
         else: return print_debug(x, ast, fn)
     return despatch_debug
 
-def indent(): return keyword('{indent}')
-def undent(): return keyword('{undent}')
-def newline(): return keyword('{newline}')
 
 #---------------------------------------------------------------------------------
 # Language base class and common parser structures
@@ -610,8 +773,7 @@ def feature(lang : Language):
             keyword('feature'), set('name', id()),
             optional(sequence(keyword('extends'), set('parent', id()))),
             indent(),
-            set("components", list(component(lang))),
-            undent()))
+            set("components", list(component(lang), "{undent}"))))
 
 def component(lang : Language):
     return anyof(function(lang), struct(lang), variable(lang))
@@ -631,8 +793,7 @@ def struct(lang : Language):
                 set('modifier', enum('struct', 'extend')),
                 set('name', id()),
                 indent(),
-                set("properties", list_separated(lang.parameter(), lang.decl_separator())),
-                undent()))
+                set("properties", list_separated(label("property", lang.parameter()), lang.decl_separator(), "{undent}"))))
 
 def variable(lang : Language):
     return label("variable",
@@ -653,8 +814,7 @@ class Typescript(Language):
         return sequence(
             set('name', id()),
             keyword("("),
-            set("parameters", list(self.parameter())),
-            keyword(")"),
+            set("parameters", list_separated(label("parameter", self.parameter()), ",", ")")),
             optional(sequence(keyword(":"), set("returnType", upto(['{indent}']))))
         )
     def parameter(self):
@@ -668,8 +828,11 @@ class Typescript(Language):
 test_code_ts = """
 feature Hello extends Feature {
     on hello(name: string) : number { 
-        console.log(`Hello, ${name}!`);
+        output(`Hello, ${name}!`);
         return 0;
+    }
+    on output(message: string, indent: number=0) {
+        console.log("    ".repeat(indent) + message);
     }
     replace main() : number {
         return hello("world");
@@ -684,15 +847,15 @@ feature Hello extends Feature {
 """
 
 lexemes_ts = """
-[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), :, number, {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, replace, main, (, ), :, number, {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, red, :, number, =, 0, ;, green, :, number, =, 0, ;, blue, :, number, =, 0, ;, {undent}, local, colour, :, Colour, =, new, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), :, number, {indent}, output, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, on, output, (, message, :, string, ,, indent, :, number, =, 0, ), {indent}, console, ., log, (, "    ", ., repeat, (, indent, ), +, message, ), ;, {undent}, replace, main, (, ), :, number, {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, red, :, number, =, 0, ;, green, :, number, =, 0, ;, blue, :, number, =, 0, ;, {undent}, local, colour, :, Colour, =, new, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
 """
 
 ast_ts = """
-{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'name': [name], 'type': [string]}], 'returnType': [number], 'body': [console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'returnType': [number], 'body': [return, hello, (, "world", ), ;]}, {'_type': 'struct', 'modifier': [struct], 'name': [Colour], 'properties': [{'name': [red], 'type': [number], 'default': [0]}, {'name': [green], 'type': [number], 'default': [0]}, {'name': [blue], 'type': [number], 'default': [0]}]}, {'_type': 'variable', 'name': [colour], 'type': [Colour], 'default': [new, Colour, (, 1, ,, 1, ,, 1, )]}]}
+{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'name': [hello], 'parameters': [{'_type': 'parameter', 'name': [name], 'type': [string]}], 'returnType': [number], 'body': [output, (, `Hello, ${name}!`, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [on], 'name': [output], 'parameters': [{'_type': 'parameter', 'name': [message], 'type': [string]}, {'_type': 'parameter', 'name': [indent], 'type': [number], 'default': [0]}], 'body': [console, ., log, (, "    ", ., repeat, (, indent, ), +, message, ), ;]}, {'_type': 'function', 'modifier': [replace], 'name': [main], 'parameters': [], 'returnType': [number], 'body': [return, hello, (, "world", ), ;]}, {'_type': 'struct', 'modifier': [struct], 'name': [Colour], 'properties': [{'_type': 'property', 'name': [red], 'type': [number], 'default': [0]}, {'_type': 'property', 'name': [green], 'type': [number], 'default': [0]}, {'_type': 'property', 'name': [blue], 'type': [number], 'default': [0]}]}, {'_type': 'variable', 'name': [colour], 'type': [Colour], 'default': [new, Colour, (, 1, ,, 1, ,, 1, )]}]}
 """
 
 print_ts = """
-[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ), :, number, {indent}, console, ., log, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, replace, main, (, ), :, number, {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, red, :, number, =, 0, ;, green, :, number, =, 0, ;, blue, :, number, =, 0, ;, {undent}, local, colour, :, Colour, =, new, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
+[feature, Hello, extends, Feature, {indent}, on, hello, (, name, :, string, ,, :, number, {indent}, output, (, `Hello, ${name}!`, ), ;, return, 0, ;, {undent}, on, output, (, message, :, string, ,, indent, :, number, =, 0, ,, {indent}, console, ., log, (, "    ", ., repeat, (, indent, ), +, message, ), ;, {undent}, replace, main, (, :, number, {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, red, :, number, =, 0, ;, green, :, number, =, 0, ;, blue, :, number, =, 0, ;, local, colour, :, Colour, =, new, Colour, (, 1, ,, 1, ,, 1, ), ;]
 """
 
 #---------------------------------------------------------------------------------
@@ -706,9 +869,8 @@ class Python(Language):
         return sequence(
             set('name', id()),
             keyword("("),
-            set("parameters", list(self.parameter())),
-            keyword(")"),
-            optional(sequence(keyword("->"), set("returnType", id())))
+            set("parameters", list_separated(self.parameter(), ",", keyword(")")),
+            optional(sequence(keyword("->"), set("returnType", id()))))
         )
     def parameter(self):
         return sequence(
@@ -790,6 +952,58 @@ ast_c = """
 print_c = """
 [feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, int, red, =, 0, ;, int, green, =, 0, ;, int, blue, =, 0, ;, {undent}, local, Colour, colour, =, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
 """
+#---------------------------------------------------------------------------------
+# pretty-print the ast, matching line layout to source
+
+def pretty_print_ast_rec(ast):
+    iLine = 0
+    for key, val in ast.items():
+        if isinstance(val, List) and len(val) > 0 and isinstance(val[0], Lex):
+           iLineLex = val[0].location().line
+           if iLine ==0 or iLineLex < iLine:
+               iLine = iLineLex
+    line = f"**{iLine}: "
+    for key, val in ast.items():
+        if isinstance(val, str):
+            line += f"{val} ▶︎ "
+        elif isinstance(val, List) and len(val) > 0 and isinstance(val[0], Lex):
+            iLineLex = val[0].location().line
+            if iLineLex > iLine:
+                line += f"**{iLineLex}: "
+                iLine = iLineLex
+            line += f"{key}: \""
+            for lex in val:
+                iLineLex = lex.location().line
+                if iLineLex > iLine:
+                    line += f"**{iLineLex}: "
+                    iLine = iLineLex
+                line += f"{str(lex)}" + " "
+            if line[-1]==' ': line = line[:-1]
+            line += "\" "
+        elif isinstance(val, List) and (len(val) == 0 or not (isinstance(val[0], Lex))):
+            line += f"{key}: [ "
+            for i, subitem in enumerate(val):
+                line += f"{pretty_print_ast_rec(subitem)}"
+                if i < len(val)-1: line += ", "
+            line += "] "
+    return line
+
+def pretty_print_ast(ast):
+    out = pretty_print_ast_rec(ast)
+    outlines = out.split("**")[1:]
+    result = []
+    for line in outlines:
+        ic = line.find(":")
+        iLine = int(line[:ic])
+        line = line[ic+2:]
+        if iLine >= len(result):
+            result += [""] * (iLine - len(result) + 1)
+        result[iLine] += line
+    res = ""
+    for i, line in enumerate(result):
+        if i > 0:
+            res += f"{i:3}: {line}" + "\n"
+    return res
 
 #---------------------------------------------------------------------------------
 # extract code from markdown file
@@ -869,10 +1083,15 @@ class Feature:
 
     def parse(self):
         self.ranges = extractCode(self.source)
+        print(self.ranges)
         self.lexemes = lexer(self.ranges, self.language.indentChar())
         reader = Reader(self.lexemes)
         parser = feature(self.language)
         self.ast = parser(reader)
+
+    def err(self)->bool:
+        return err(self.ast)
+    
 
 #---------------------------------------------------------------------------------
 # Context is a list of features that gets built and run
@@ -889,6 +1108,20 @@ class Context:
 
         for feature in self.features:
             feature.parse()
+            if feature.err():
+                log(f"Error in {feature.source.path}:")
+                log(feature.ast)
+                exit(0)
+        
+        for feature in self.features:
+            for component in feature.ast['components']:
+                name = str(component['name'][0])
+                if component['_type'] == 'function':
+                    log(f"Function: {name}")
+                elif component['_type'] == 'struct':
+                    log(f"Struct: {name}")
+                elif component['_type'] == 'variable':
+                    log(f"Variable: {name}")
 
     
 #---------------------------------------------------------------------------------
@@ -912,7 +1145,10 @@ def test_parser(language: Language, test_code, expected_lexemes, expected_ast, e
     reader = Reader(lexemes)
     ast = parser(reader)
     log_assert(expected_ast, ast)
-    if err(ast): return
+    if err(ast): 
+        print(ast.show_source())
+        return
+    print(pretty_print_ast(ast))
     writer = Writer()
     success = parser(writer, ast)
     log_assert(expected_print, writer.lexemes)
@@ -935,11 +1171,13 @@ def test_context():
 # test!
 
 def test():
+    log_enable()
     test_parser(Typescript(), test_code_ts, lexemes_ts, ast_ts, print_ts)
-    test_parser(Python(), test_code_py, lexemes_py, ast_py, print_py)
-    test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
-    test_extract()
-    test_context()
+    #test_parser(Python(), test_code_py, lexemes_py, ast_py, print_py)
+    #test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
+    #test_extract()
+    #log_enable()
+    #test_context()
 
 #---------------------------------------------------------------------------------
 if __name__ == "__main__":

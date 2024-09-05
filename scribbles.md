@@ -2,6 +2,10 @@
 # scribbles
 
 general issue with debuggability: but we're inching towards a method.
+I need two things:
+
+1) show the error in place.
+2) give me a readout of where in the function chain this happens.
 
 -------
 
