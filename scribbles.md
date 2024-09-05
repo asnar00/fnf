@@ -1,6 +1,9 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+messing with parser debugging today. Figured out a way of printing out the AST that lays it out line by line, to match the code it refers to. Bunch of work to be able to refer an error back to the parser-fn call in the code that it came from, so you can just click on it to go back to the line of code. Errors also show the code with the error-lexeme highlighted. It's all rather cool, and what's great is how small the code is - we're around 1200 lines for the whole thing.
+
+-------------------------------------------------
 general issue with debuggability: but we're inching towards a method.
 I need two things:
 
