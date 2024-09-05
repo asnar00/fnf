@@ -350,6 +350,7 @@ class Error:
         self.message = message
         self.reader = reader
         self.iLex = reader.i
+        log(self)
 
     def __str__(self):
         loc = self.reader.location(self.iLex)
@@ -403,6 +404,7 @@ def set(name: str, fn):
     def parse_set(reader: Reader, name: str, parse_fn):
         ast = parse_fn(reader)
         if err(ast): return ast
+        log("set(", name, "):", ast)
         return { name : ast }
     def print_set(writer: Writer, ast, name: str, print_fn):
         if not (name in ast): return False
@@ -436,6 +438,7 @@ def label(type: str, fn):
         ast = { '_type' : type }
         sub_ast = parse_fn(reader)
         if err(sub_ast): return sub_ast
+        log("label(", type, "): ", sub_ast)
         ast.update(sub_ast)
         return ast
     def print_label(writer: Writer, ast, type: str, print_fn):
@@ -623,19 +626,19 @@ def function(lang : Language):
                 undent()))
 
 def struct(lang : Language):
-    return label("struct", debug(
+    return label("struct",
             sequence(
                 set('modifier', enum('struct', 'extend')),
                 set('name', id()),
                 indent(),
-                set("properties", list_separated(lang.property(), lang.decl_separator())),
-                undent())))
+                set("properties", list_separated(lang.parameter(), lang.decl_separator())),
+                undent()))
 
 def variable(lang : Language):
     return label("variable",
             sequence(
                 keyword("local"),
-                lang.property(),
+                lang.parameter(),
                 keyword(lang.decl_separator())))
 
 #---------------------------------------------------------------------------------
@@ -660,8 +663,6 @@ class Typescript(Language):
             optional(sequence(keyword(':'), set('type', id()))),
             optional(sequence(keyword('='), set('default', upto([',',')',';']))))
         )
-    def property(self):
-        return self.parameter()
 
 # test code and expected outputs
 test_code_ts = """
@@ -715,8 +716,6 @@ class Python(Language):
             optional(sequence(keyword(':'), set('type', id()))),
             optional(sequence(keyword('='), set('default', upto(["{newline}", "{undent}"]))))
         )
-    def property(self):
-        return self.parameter()
 
 test_code_py = """
 feature Hello extends Feature:
@@ -746,6 +745,7 @@ print_py = """
 class C(Language):
     def ext(self): return "c"
     def indentChar(self): return "{"
+    def decl_separator(self): return ";"
     def function_signature(self):
         return sequence(
             set('returnType', id()),
@@ -760,8 +760,6 @@ class C(Language):
             set('name', id()),
             optional(sequence(keyword('='), set('default', upto([',',')',';']))))
         )
-    def property(self):
-        return sequence(self.parameter(), keyword(";"))
     
 test_code_c = """
 feature Hello extends Feature {
@@ -772,18 +770,25 @@ feature Hello extends Feature {
     replace int main() {
         return hello("world");
     }
+    struct Colour {
+        int red = 0;
+        int green = 0;
+        int blue = 0;
+    }
+    local Colour colour = Colour(1, 1, 1);
 }
 """
 
 lexemes_c = """
-[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, int, red, =, 0, ;, int, green, =, 0, ;, int, blue, =, 0, ;, {undent}, local, Colour, colour, =, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
 """
 
 ast_c = """
-{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'returnType': [int], 'name': [hello], 'parameters': [{'type': [string], 'name': [name]}], 'body': [printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [replace], 'returnType': [int], 'name': [main], 'parameters': [], 'body': [return, hello, (, "world", ), ;]}]}"""
+{'_type': 'feature', 'name': [Hello], 'parent': [Feature], 'components': [{'_type': 'function', 'modifier': [on], 'returnType': [int], 'name': [hello], 'parameters': [{'type': [string], 'name': [name]}], 'body': [printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;]}, {'_type': 'function', 'modifier': [replace], 'returnType': [int], 'name': [main], 'parameters': [], 'body': [return, hello, (, "world", ), ;]}, {'_type': 'struct', 'modifier': [struct], 'name': [Colour], 'properties': [{'type': [int], 'name': [red], 'default': [0]}, {'type': [int], 'name': [green], 'default': [0]}, {'type': [int], 'name': [blue], 'default': [0]}]}, {'_type': 'variable', 'type': [Colour], 'name': [colour], 'default': [Colour, (, 1, ,, 1, ,, 1, )]}]}
+"""
 
 print_c = """
-[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, {undent}]
+[feature, Hello, extends, Feature, {indent}, on, int, hello, (, string, name, ), {indent}, printf, (, "Hello, %s!", ,, name, ), ;, return, 0, ;, {undent}, replace, int, main, (, ), {indent}, return, hello, (, "world", ), ;, {undent}, struct, Colour, {indent}, int, red, =, 0, ;, int, green, =, 0, ;, int, blue, =, 0, ;, {undent}, local, Colour, colour, =, Colour, (, 1, ,, 1, ,, 1, ), ;, {undent}]
 """
 
 #---------------------------------------------------------------------------------
@@ -918,7 +923,7 @@ expected_files = """
 """
 
 def test_context():
-    print("\test_context -------------------------------------------------\n")
+    print("\ntest_context -------------------------------------------------\n")
     markdown_files = scanFolder(test_folder, ".md")
     log_assert(expected_files, markdown_files)
     sourceFiles = [SourceFile(file) for file in markdown_files]
@@ -930,14 +935,11 @@ def test_context():
 # test!
 
 def test():
-    log_enable()
     test_parser(Typescript(), test_code_ts, lexemes_ts, ast_ts, print_ts)
-    log_enable()
     test_parser(Python(), test_code_py, lexemes_py, ast_py, print_py)
-    #test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
-    #test_extract()
-    #log_enable()
-    #test_context()
+    test_parser(C(), test_code_c, lexemes_c, ast_c, print_c)
+    test_extract()
+    test_context()
 
 #---------------------------------------------------------------------------------
 if __name__ == "__main__":

@@ -1,6 +1,10 @@
 ᕦ(ツ)ᕤ
 # scribbles
 
+general issue with debuggability: but we're inching towards a method.
+
+-------
+
 Where we are: trying to deal with the subtleties of significant whitespace and lexing and separators.
 
 In a nutshell: we need to be able to do match "anything upto a comma, cr, or undent" and they're currently separate parser functions. So we need to figure this out better.
